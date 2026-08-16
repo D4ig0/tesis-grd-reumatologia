@@ -41,7 +41,8 @@ Salidas adicionales: `12_curvas.py` (curvas ROC/PR) y `14_desenlaces.py` (desenl
 `15_ablacion_artrosis.py` (ablación de códigos de tratamiento), `16_estabilidad_atributos.py` y
 `17_estabilidad_iteraciones.py` (estabilidad de atributos), `18_estratificacion.py` (estratificación
 por tramo/región/previsión), `19_atributos_prevalencia.py` (corroboración por razón de prevalencias),
-`20_verificar_shap_alt.py` (verificación de las matrices SHAP).
+`20_verificar_shap_alt.py` (verificación de las matrices SHAP) → `21_persona_anclaje.py` y `22_fig_anclaje.py` 
+(comparación con otros trabajos)
 
 Módulos compartidos (importados por los scripts de modelado): `_comun_alt.py`, `codigos_cie.py`.
 

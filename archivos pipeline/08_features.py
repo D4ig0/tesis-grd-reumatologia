@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import time
 
-import _comun as C
+import _comun_alt as C
 import joblib
 from scipy import sparse
 

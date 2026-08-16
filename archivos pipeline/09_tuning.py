@@ -19,7 +19,7 @@ import argparse
 import json
 import time
 
-import _comun as C
+import _comun_alt as C
 import joblib
 import numpy as np
 

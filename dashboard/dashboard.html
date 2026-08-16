@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfiles hospitalarios reumatológicos — GRD Chile (prototipo)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+  :root{--tinta:#333F48;--acento:#EA7600;--teal:#00A499;--gris:#6b7280;--linea:#e7e9ec;--bg:#f6f7f9;--sist:#C8102E;--infl:#498BCA;--degen:#8C4799;}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;color:#2b3138;background:var(--bg)}
+  header{background:#fff;color:var(--tinta);padding:16px 26px;border-bottom:3px solid var(--acento);display:flex;align-items:center;gap:20px}
+  header img.logo{height:66px;width:auto;flex:none}
+  header .htxt h1{margin:0;font-size:16px;font-weight:600;letter-spacing:.1px;color:var(--tinta)}
+  header .htxt p{margin:4px 0 0;font-size:12px;color:var(--gris);max-width:900px}
+  nav{display:flex;gap:4px;background:#fff;border-bottom:1px solid var(--linea);padding:0 16px;position:sticky;top:0;z-index:5}
+  nav button{border:0;background:transparent;padding:12px 16px;font-size:14px;cursor:pointer;color:var(--gris);border-bottom:3px solid transparent}
+  nav button.on{color:var(--tinta);border-bottom-color:var(--acento);font-weight:600}
+  main{padding:18px 22px;max-width:1150px;margin:0 auto}
+  .vista{display:none} .vista.on{display:block}
+  h2{color:var(--tinta);font-size:16px;margin:6px 0 2px}
+  .sub{color:var(--gris);font-size:13px;margin:0 0 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px;align-items:start}
+  .grid .wide{grid-column:1/-1}
+  .card{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:16px}
+  .card h3{margin:0 0 12px;font-size:13.5px;color:var(--tinta);display:flex;align-items:center;font-weight:600}
+  .cwrap{position:relative;height:280px}
+  .cwrap.tall{height:440px}
+  .cwrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:14px;margin-bottom:16px}
+  .kpi{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px}
+  .kpi .kico{width:40px;height:40px;flex:none;border-radius:9px;background:#fbe9d7;color:var(--acento);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .kpi .kv{font-size:20px;font-weight:700;color:var(--tinta);line-height:1.1}
+  .kpi .kl{font-size:11.5px;color:var(--gris);margin-top:3px}
+  .ico{margin-right:9px;color:var(--acento);font-size:13px;width:16px;text-align:center}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--linea)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--tinta);border-bottom:2px solid var(--linea)}
+  .funnelflow{display:flex;gap:10px;flex-wrap:wrap}
+  .fstep{flex:1;min-width:180px;background:#f6f7f9;border:1px solid var(--linea);border-radius:9px;padding:12px 14px;position:relative}
+  .fstep .fn{font-size:20px;font-weight:700;color:var(--tinta);margin-top:8px;line-height:1}
+  .fstep .fl{font-size:12px;color:var(--gris);margin-top:3px}
+  .fstep .fp{font-size:11px;color:var(--acento);margin-top:7px;font-weight:600}
+  .fbar{height:6px;border-radius:3px;background:var(--acento)}
+  [title]{cursor:help}
+  th[title]{text-decoration:underline dotted var(--gris);text-underline-offset:3px}
+  select{padding:7px 10px;font-size:14px;border:1px solid var(--linea);border-radius:6px}
+  #sel{margin-bottom:12px}
+  .pend{color:#a15c00;background:#fff6e6;border:1px solid #ffe0a3;border-radius:6px;padding:6px 9px;font-size:12px;display:inline-block}
+  .leyenda span{display:inline-block;margin-right:14px;font-size:12px;color:var(--gris)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .nota{font-size:12px;color:var(--gris);margin-top:8px}
+  footer{padding:16px 26px;color:var(--gris);font-size:11.5px;border-top:1px solid var(--linea);margin-top:10px}
+  #heat{overflow-x:auto}
+  #heat table{min-width:600px}
+  #filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;background:#fff;border-bottom:1px solid var(--linea);
+           padding:10px 22px;position:sticky;top:45px;z-index:4}
+  #filtros .fg{display:flex;flex-direction:column;gap:2px}
+  #filtros label{font-size:11px;color:var(--gris)}
+  #filtros select{padding:5px 8px;font-size:13px}
+  #filtros button{border:1px solid var(--linea);background:#f2f4f6;color:var(--tinta);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+  #nfiltro{margin-left:auto;font-size:13px;color:var(--tinta);font-weight:600;align-self:center}
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="logo_usach.png" alt="USACH" onerror="this.style.display='none'">
+  <div class="htxt">
+    <h1>Perfiles hospitalarios de enfermedades reumáticas — Registros GRD de Chile (2019–2024)</h1>
+    <p>Prototipo metodológico. Cohorte de estudio: episodios con la enfermedad entre los tres primeros diagnósticos del egreso. Toda celda con n &lt; 5 se suprime y no se publica.</p>
+  </div>
+</header>
+
+<nav>
+  <button class="on" data-v="v1">1 · Resumen de cohorte</button>
+  <button data-v="v2">2 · Por enfermedad</button>
+  <button data-v="v3">3 · Comparativa</button>
+</nav>
+
+<div id="filtros">
+  <div class="fg"><label>Región</label><select id="f_reg"></select></div>
+  <div class="fg"><label>Previsión</label><select id="f_prev"></select></div>
+  <div class="fg"><label>Tramo etario</label><select id="f_tramo"></select></div>
+  <div class="fg"><label>Año</label><select id="f_anio"></select></div>
+  <button id="f_limpiar">Limpiar</button>
+  <span id="nfiltro"></span>
+</div>
+
+<main>
+  <!-- VISTA 1 -->
+  <section id="v1" class="vista on">
+    <h2>¿De qué tamaño es el problema y cómo se conformó la cohorte?</h2>
+    <p class="sub">Conformación de la cohorte (sin filtrar), y volumen por enfermedad, año, tramo etario y región según los filtros activos.</p>
+    <div id="kpis" class="kpis"></div>
+    <div class="grid">
+      <div id="funnel" class="card wide"><h3 data-ico="funnel">Conformación de la cohorte</h3></div>
+      <div class="card"><h3 data-ico="bars">Volumen por enfermedad</h3><div class="cwrap"><canvas id="c_vol"></canvas></div></div>
+      <div class="card"><h3 data-ico="line">Episodios por año</h3><div class="cwrap"><canvas id="c_anio"></canvas></div></div>
+      <div class="card"><h3 data-ico="bars">Distribución por tramo etario</h3><div class="cwrap"><canvas id="c_tramo"></canvas></div></div>
+      <div class="card wide"><h3 data-ico="pin">Distribución por región</h3><div class="cwrap"><canvas id="c_region"></canvas></div></div>
+    </div>
+  </section>
+
+  <!-- VISTA 2 -->
+  <section id="v2" class="vista">
+    <h2>¿Cómo es el perfil hospitalario de la enfermedad y en qué se aparta de la referencia?</h2>
+    <p class="sub">Indicadores de la enfermedad frente a dos referencias: la cohorte reumatológica y la población hospitalizada general. Los indicadores son a nivel de enfermedad; los filtros ajustan el tamaño (n).</p>
+    <select id="sel"></select>
+    <div class="grid">
+      <div class="card wide"><h3 data-ico="sliders">Indicadores vs. referencias</h3><div class="cwrap"><canvas id="c_ind"></canvas></div></div>
+      <div class="card"><h3 data-ico="card">Ficha</h3><table id="ficha"></table></div>
+      <div class="card"><h3 data-ico="bars">Distribución por tramo etario (según filtros)</h3><div class="cwrap"><canvas id="c_enf_tramo"></canvas></div></div>
+      <div class="card"><h3 data-ico="pulse">Principales comorbilidades por sistema</h3><div class="cwrap"><canvas id="c_comorb"></canvas></div>
+        <div class="nota">Episodios con al menos una comorbilidad del sistema; excluye los 14 grupos de códigos que definen la cohorte. Nivel de enfermedad.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VISTA 3 -->
+  <section id="v3" class="vista">
+    <h2>¿Cómo se ordenan las enfermedades entre sí en carga y uso de recursos?</h2>
+    <p class="sub">Estancia mediana (eje horizontal) frente a reingreso a 30 días (eje vertical); tamaño del punto por n (según filtros), color por grupo.</p>
+    <div class="leyenda">
+      <span><i class="dot" style="background:var(--sist)"></i>Sistémica autoinmune</span>
+      <span><i class="dot" style="background:var(--infl)"></i>Inflamatoria articular</span>
+      <span><i class="dot" style="background:var(--degen)"></i>Degenerativa / otra</span>
+    </div>
+    <div class="grid">
+      <div class="card wide"><h3 data-ico="scatter">Mapa de carga</h3><div class="cwrap tall"><canvas id="c_scatter"></canvas></div></div>
+      <div class="card wide"><h3 data-ico="table">Indicadores estandarizados (z-score por columna)</h3><div id="heat"></div>
+        <div class="nota">Teal = por debajo del promedio de la cohorte; rojo = por encima. Tabla a nivel de enfermedad (no depende de los filtros).</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>Fuente: Registros GRD (2019–2024), FONASA · Elaboración propia · Prototipo metodológico — Trabajo de título, Universidad de Santiago de Chile.</footer>
+
+<!-- Si existe datos_dashboard.js (salida de dashboard_agregados.py) se usa; si no, se usan los datos embebidos de abajo. -->
+<script src="datos_dashboard.js"></script>
+<script>
+window.DATOS = window.DATOS || {
+  funnel:[
+    {label:"Egresos GRD 2019–2024", n:5808536},{label:"Base depurada", n:5801611},
+    {label:"Con la enfermedad en cualquier diagnóstico (máx. 35)", n:281640},{label:"Con la enfermedad entre los 3 diagnósticos principales", n:110647}],
+  enfermedades:[
+    {id:"artrosis",nombre:"Artrosis / osteoartritis",grupo:"degen",n:70345,edad:68,mujer:67.1,estancia:3.1,urg:17.5,cir:85.2,sev:1,peso:1.31,reing:5.4,mort:0.4},
+    {id:"lupus",nombre:"Lupus eritematoso sistémico",grupo:"sist",n:13422,edad:39,mujer:88.0,estancia:7.2,urg:46.6,cir:26.5,sev:2,peso:0.87,reing:20.5,mort:1.5},
+    {id:"vasculitis",nombre:"Vasculitis",grupo:"sist",n:5369,edad:34,mujer:53.5,estancia:9.3,urg:73.3,cir:13.0,sev:2,peso:0.97,reing:21.3,mort:3.2},
+    {id:"uveitis",nombre:"Uveítis",grupo:"degen",n:1322,edad:43,mujer:57.7,estancia:6.5,urg:47.2,cir:41.6,sev:1,peso:0.57,reing:14.4,mort:0.2}],
+  ref_cohorte:{estancia:2.0,urg:29.4,cir:66.9,reing:9.3,sev:1,peso:0.98,mort:0.8},
+  ref_general:{estancia:3.0,urg:51.2,cir:55.4,reing:11.2,sev:1,peso:0.68,mort:2.9}
+};
+</script>
+
+<script>
+const COL={sist:"#C8102E",infl:"#498BCA",degen:"#8C4799"};
+const grupos={sist:"Sistémica autoinmune",infl:"Inflamatoria articular",degen:"Degenerativa / otra"};
+const META={
+  estancia:{sh:"Estancia",help:"Días de hospitalización, mediana."},
+  urg:{sh:"Urg.",help:"% de ingresos por urgencia sobre el total."},
+  cir:{sh:"Cir.",help:"% de episodios con intervención quirúrgica / uso de pabellón."},
+  reing:{sh:"Reing.",help:"% de reingreso hospitalario dentro de 30 días."},
+  peso:{sh:"Peso",help:"Peso relativo GRD, mediana."},
+  mort:{sh:"Mort.",help:"% de mortalidad intrahospitalaria."},
+  sev:{sh:"Sev.",help:"Severidad GRD, mediana."}
+};
+const $=s=>document.querySelector(s);
+const fmt=n=>Math.round(n).toLocaleString("es-CL");
+Chart.defaults.font.size=11;
+const HAS = !!(DATOS.ejes && DATOS.celdas_enf && DATOS.celdas_cohorte);
+const lbl = s => s==="None" ? "Sin dato" : s;
+
+// --- Íconos (FontAwesome 6) ---
+const FA={funnel:"fa-filter",bars:"fa-chart-column",line:"fa-chart-line",pin:"fa-location-dot",
+  sliders:"fa-sliders",card:"fa-id-card",pulse:"fa-heart-pulse",scatter:"fa-circle-nodes",
+  table:"fa-table-cells",users:"fa-users",percent:"fa-percent",calendar:"fa-calendar-days"};
+const svgIco=(name,cls)=>`<i class="fa-solid ${FA[name]||'fa-circle'} ${cls===undefined?'ico':cls}"></i>`;
+
+// navegación
+function resizeVisibles(){
+  [...Object.values(CH), chInd, chScatter].forEach(c=>{
+    try{ if(c && c.canvas && c.canvas.offsetParent!==null) c.resize(); }catch(e){}
+  });
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".vista").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); document.getElementById(b.dataset.v).classList.add("on");
+  setTimeout(resizeVisibles, 0);
+});
+window.addEventListener("resize", ()=>setTimeout(resizeVisibles, 100));
+
+// ---------- Filtros ----------
+const F={reg:-1,prev:-1,tramo:-1,anio:-1};
+const EJ = HAS ? DATOS.ejes : {regiones:[],previsiones:[],tramos:[],anios:[]};
+function llenaSelect(el,arr,key){
+  el.innerHTML=`<option value="-1">Todas</option>`+arr.map((v,i)=>`<option value="${i}">${lbl(v)}</option>`).join("");
+  el.onchange=()=>{F[key]=+el.value; render();};
+}
+if(HAS){
+  llenaSelect($("#f_reg"),EJ.regiones,"reg"); llenaSelect($("#f_prev"),EJ.previsiones,"prev");
+  llenaSelect($("#f_tramo"),EJ.tramos,"tramo"); llenaSelect($("#f_anio"),EJ.anios,"anio");
+  $("#f_limpiar").onclick=()=>{Object.keys(F).forEach(k=>F[k]=-1);
+    ["f_reg","f_prev","f_tramo","f_anio"].forEach(id=>document.getElementById(id).value="-1"); render();};
+} else { $("#filtros").style.display="none"; }
+
+// celda: cohorte [reg,prev,tramo,anio,n] (off=0) ; enf [enf,reg,prev,tramo,anio,n] (off=1)
+function pasa(c,off){return (F.reg<0||c[off]===F.reg)&&(F.prev<0||c[off+1]===F.prev)&&(F.tramo<0||c[off+2]===F.tramo)&&(F.anio<0||c[off+3]===F.anio);}
+function nEnf(i){ if(!HAS) return DATOS.enfermedades[i].n;
+  let s=0; DATOS.celdas_enf.forEach(c=>{if(c[0]===i&&pasa(c,1))s+=c[5];}); return s; }
+const sinFiltro=()=>Object.values(F).every(v=>v<0);
+function totalCoh(){
+  if(sinFiltro()) return DATOS.funnel[DATOS.funnel.length-1].n; // total real de la cohorte
+  if(!HAS) return DATOS.funnel[DATOS.funnel.length-1].n;
+  let s=0; DATOS.celdas_cohorte.forEach(c=>{if(pasa(c,0))s+=c[4];}); return s; }
+function distCoh(dimPos){ // 0 reg,1 prev,2 tramo,3 anio
+  const ax=[EJ.regiones,EJ.previsiones,EJ.tramos,EJ.anios][dimPos];
+  const out=new Array(ax.length).fill(0);
+  DATOS.celdas_cohorte.forEach(c=>{
+    let ok=true; [["reg",0],["prev",1],["tramo",2],["anio",3]].forEach(([k,p])=>{if(p!==dimPos&&F[k]>=0&&c[p]!==F[k])ok=false;});
+    if(ok) out[c[dimPos]]+=c[4];
+  });
+  return {labels:ax.map(lbl),data:out};
+}
+function distEnfTramo(i){ // tramo (pos 3) por enfermedad, aplicando filtros salvo el propio tramo
+  const out=new Array(EJ.tramos.length).fill(0);
+  if(!HAS) return {labels:EJ.tramos,data:out};
+  DATOS.celdas_enf.forEach(c=>{ if(c[0]!==i) return;
+    let ok=true; [["reg",1],["prev",2],["anio",4]].forEach(([k,p])=>{if(F[k]>=0&&c[p]!==F[k])ok=false;});
+    if(ok) out[c[3]]+=c[5];
+  });
+  return {labels:EJ.tramos,data:out};
+}
+
+// ---------- Funnel (fijo) ----------
+const F0=DATOS.funnel[0].n;
+$("#funnel").insertAdjacentHTML("beforeend", `<div class="funnelflow">`+DATOS.funnel.map((s,i)=>{
+  const prev=i?DATOS.funnel[i-1].n:s.n;
+  const pctPrev=Math.round(1000*s.n/prev)/10, pctTot=Math.round(1000*s.n/F0)/10;
+  const tip=i?`${fmt(s.n)} episodios — ${pctPrev}% del paso anterior y ${pctTot}% del total inicial`
+             :`${fmt(s.n)} egresos — punto de partida`;
+  const op=(0.35+0.65*(i+1)/DATOS.funnel.length).toFixed(2);
+  return `<div class="fstep" title="${tip}"><div class="fbar" style="opacity:${op}"></div>`+
+    `<div class="fn">${fmt(s.n)}</div><div class="fl">${s.label}</div>`+
+    `<div class="fp">${i?`${pctPrev}% del paso previo`:"base"}</div></div>`;
+}).join("")+`</div>`);
+
+// ---------- Charts que dependen de filtros ----------
+const CH={};
+const valLabel={id:"valLabel",afterDatasetsDraw(chart){
+  if(!chart.$showVals) return;
+  const ctx=chart.ctx; ctx.save(); ctx.font="10px system-ui"; ctx.fillStyle="#6b7280"; ctx.textBaseline="middle";
+  chart.data.datasets.forEach((ds,di)=>chart.getDatasetMeta(di).data.forEach((el,i)=>{
+    const v=ds.data[i]; if(v==null) return;
+    if(chart.options.indexAxis==="y"){ctx.textAlign="left"; ctx.fillText(fmt(v), el.x+5, el.y);}
+    else{ctx.textAlign="center"; ctx.fillText(fmt(v), el.x, el.y-6);}
+  }));
+  ctx.restore();
+}};
+function bar(id,labels,data,color,horiz,showVals){
+  if(CH[id])CH[id].destroy();
+  CH[id]=new Chart($("#"+id),{type:"bar",data:{labels,datasets:[{data,backgroundColor:color}]},plugins:[valLabel],
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:horiz?"y":"x",
+      layout:showVals?{padding:{right:horiz?46:0,top:horiz?0:14}}:{},
+      plugins:{legend:{display:false}},
+      scales:horiz?{x:{title:{display:true,text:"episodios"}}}:{y:{title:{display:true,text:"episodios"}}}}});
+  CH[id].$showVals=!!showVals; CH[id].update();
+}
+const IND=[["estancia","Estancia mediana (días)"],["urg","% urgencia"],["cir","% cirugía"],
+           ["reing","Reingreso 30 d (%)"],["peso","Peso GRD"],["mort","% mortalidad"]];
+let chInd=null, chScatter=null;
+function linea(id,labels,data){
+  if(CH[id])CH[id].destroy();
+  CH[id]=new Chart($("#"+id),{type:"line",data:{labels,datasets:[{data,borderColor:"#333F48",
+    backgroundColor:"#333F4822",fill:true,tension:.25,pointRadius:3}]},plugins:[valLabel],
+    options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16}},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:"episodios"}}}}});
+  CH[id].$showVals=true; CH[id].update();
+}
+
+function pintaEnf(id){
+  const e=DATOS.enfermedades.find(x=>x.id===id), i=DATOS.enfermedades.indexOf(e);
+  const rc=DATOS.ref_cohorte, rg=DATOS.ref_general;
+  const ds=[{label:e.nombre,data:IND.map(k=>e[k[0]]),backgroundColor:COL[e.grupo]},
+            {label:"Cohorte reumatológica",data:IND.map(k=>rc[k[0]]??null),backgroundColor:"#c7ccd1"}];
+  if(rg) ds.push({label:"Población hospitalizada general",data:IND.map(k=>rg[k[0]]??null),backgroundColor:"#EAAA00"});
+  if(chInd) chInd.destroy();
+  chInd=new Chart($("#c_ind"),{type:"bar",data:{labels:IND.map(k=>k[1]),datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{afterBody:it=>{
+      const k=IND[it[0].dataIndex][0]; return META[k]?META[k].help:"";}}}},scales:{y:{beginAtZero:true}}}});
+  const nf=nEnf(i);
+  const HF={"n (según filtros)":"Episodios que cumplen los filtros activos.","Edad mediana":"Edad en años, mediana.",
+    "% mujeres":"% de mujeres.","Estancia mediana":META.estancia.help,"% urgencia":META.urg.help,
+    "% cirugía":META.cir.help,"Reingreso 30 d":META.reing.help,"Severidad med.":META.sev.help,"% mortalidad":META.mort.help};
+  $("#ficha").innerHTML=`<thead><tr><th>Indicador</th><th>${e.nombre}</th><th>Cohorte</th></tr></thead><tbody>`+
+    [["n (según filtros)",fmt(nf),fmt(totalCoh())],["Edad mediana",e.edad,"—"],["% mujeres",e.mujer,"—"],
+     ["Estancia mediana",e.estancia,rc.estancia],["% urgencia",e.urg,rc.urg],["% cirugía",e.cir,rc.cir],
+     ["Reingreso 30 d",e.reing,rc.reing],["Severidad med.",e.sev,rc.sev],["% mortalidad",e.mort,rc.mort]]
+    .map(r=>`<tr><td title="${HF[r[0]]||''}">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("")+`</tbody>`;
+  if(HAS){const dt=distEnfTramo(i); bar("c_enf_tramo",dt.labels,dt.data,COL[e.grupo],false,true);}
+  else{$("#c_enf_tramo").closest(".card").style.display="none";}
+  if(HAS && DATOS.comorbilidades){const co=DATOS.comorbilidades[i]||[];
+    bar("c_comorb",co.map(x=>x.sis),co.map(x=>x.n),co.map(()=>COL[e.grupo]),true,true);}
+  else{$("#c_comorb").closest(".card").style.display="none";}
+}
+
+const refLines={id:"refLines",afterDraw(chart){
+  const rc=DATOS.ref_cohorte; if(!rc) return;
+  const {ctx,chartArea:{top,bottom,left,right},scales:{x,y}}=chart;
+  const px=x.getPixelForValue(rc.estancia), py=y.getPixelForValue(rc.reing);
+  ctx.save(); ctx.strokeStyle="#b0b7c3"; ctx.setLineDash([5,4]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(px,top); ctx.lineTo(px,bottom); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(left,py); ctx.lineTo(right,py); ctx.stroke();
+  ctx.setLineDash([]); ctx.fillStyle="#9aa3b2"; ctx.font="10px system-ui";
+  ctx.fillText("mediana cohorte", px+4, top+12); ctx.restore();
+}};
+function pintaScatter(){
+  const ns=DATOS.enfermedades.map((e,i)=>nEnf(i));
+  if(chScatter) chScatter.destroy();
+  chScatter=new Chart($("#c_scatter"),{type:"bubble",plugins:[refLines],
+    data:{datasets:Object.keys(grupos).map(g=>({label:grupos[g],backgroundColor:COL[g]+"cc",
+      data:DATOS.enfermedades.map((e,i)=>({e,i})).filter(o=>o.e.grupo===g)
+        .map(o=>({x:o.e.estancia,y:o.e.reing,r:4+Math.sqrt(Math.max(ns[o.i],1))/18,nombre:o.e.nombre,nn:ns[o.i]}))}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:c=>`${c.raw.nombre}: estancia ${c.raw.x} d, reingreso ${c.raw.y}%, n ${fmt(c.raw.nn)}`}}},
+      scales:{x:{title:{display:true,text:"Estancia mediana (días)"}},y:{title:{display:true,text:"Reingreso a 30 días (%)"}}}}});
+}
+
+function render(){
+  // Vista 1: volumen (filtrado) + distribuciones
+  const ord=DATOS.enfermedades.map((e,i)=>({e,nn:nEnf(i)})).sort((a,b)=>b.nn-a.nn);
+  bar("c_vol",ord.map(o=>o.e.nombre),ord.map(o=>o.nn),ord.map(o=>COL[o.e.grupo]),true,true);
+  if(HAS){
+    const da=distCoh(3); linea("c_anio",da.labels,da.data);
+    const dt=distCoh(2); bar("c_tramo",dt.labels,dt.data,"#333F48",false,true);
+    const dr=distCoh(0); bar("c_region",dr.labels,dr.data,"#00A499",false,true);
+  } else {
+    ["c_anio","c_tramo","c_region"].forEach(id=>$("#"+id).closest(".card").style.display="none");
+  }
+  // Vista 2 y 3
+  pintaEnf($("#sel").value || DATOS.enfermedades[0].id);
+  pintaScatter();
+  $("#nfiltro").textContent = "n "+(sinFiltro()?"= "+fmt(totalCoh())+" (cohorte completa)":"≈ "+fmt(totalCoh())+" (filtrado)");
+}
+
+// selector vista 2
+DATOS.enfermedades.forEach(e=>$("#sel").insertAdjacentHTML("beforeend",`<option value="${e.id}">${e.nombre}</option>`));
+$("#sel").onchange=()=>pintaEnf($("#sel").value);
+
+// ---------- Heatmap (nivel enfermedad, fijo) ----------
+const cols=[["estancia","Estancia"],["reing","Reing."],["sev","Sev."],["mort","Mort."],["urg","Urg."],["cir","Cir."],["peso","Peso"]];
+const mean={},sd={};
+cols.forEach(([k])=>{const v=DATOS.enfermedades.map(e=>e[k]);const m=v.reduce((a,b)=>a+b,0)/v.length;
+  mean[k]=m; sd[k]=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/v.length)||1;});
+const mix=(a,b,f)=>a.map((v,k)=>Math.round(v+(b[k]-v)*f));
+const C_BLANCO=[246,247,249], C_TEAL=[0,164,153], C_ROJO=[200,16,46]; // paleta USACH
+const cel=z=>{const t=Math.max(-1,Math.min(1,z/2));
+  const c=t>=0?mix(C_BLANCO,C_ROJO,t):mix(C_BLANCO,C_TEAL,-t);
+  return `rgb(${c[0]},${c[1]},${c[2]})`;};
+let h=`<table><thead><tr><th>Enfermedad</th>${cols.map(c=>`<th title="${META[c[0]]?META[c[0]].help:''}">${c[1]}</th>`).join("")}</tr></thead><tbody>`;
+[...DATOS.enfermedades].sort((a,b)=>b.reing-a.reing).forEach(e=>{
+  h+=`<tr><td>${e.nombre}</td>`+cols.map(([k])=>{const z=(e[k]-mean[k])/sd[k];
+    return `<td style="background:${cel(z)}">${e[k]}</td>`;}).join("")+`</tr>`;});
+$("#heat").innerHTML=h+`</tbody></table>`;
+
+// inyecta íconos en los encabezados de tarjeta
+document.querySelectorAll(".card h3[data-ico]").forEach(el=>el.insertAdjacentHTML("afterbegin",svgIco(el.dataset.ico)));
+
+// KPIs de la vista 1 (fijos sobre la cohorte completa, no dependen de filtros)
+(function(){
+  let over60=0,tot=0;
+  if(HAS) DATOS.celdas_cohorte.forEach(c=>{tot+=c[4]; if(EJ.tramos[c[2]]===">60")over60+=c[4];});
+  const totalCohorte=DATOS.funnel[DATOS.funnel.length-1].n;
+  const pct=tot?Math.round(100*over60/tot):null;
+  const anios=HAS?EJ.anios:["2019","2024"];
+  const items=[
+    {ico:"users",v:fmt(totalCohorte),l:"Episodios en la cohorte",t:"Episodios con la enfermedad entre los tres primeros diagnósticos del egreso, depurados desde 5.801.611 egresos GRD."},
+    {ico:"pulse",v:DATOS.enfermedades.length,l:"Enfermedades reumáticas",t:"Grupos diagnósticos reumáticos caracterizados en el estudio."},
+    {ico:"percent",v:(pct!=null?pct+"%":"—"),l:"Episodios en mayores de 60",t:"Porcentaje de la cohorte en el tramo etario mayor de 60 años."},
+    {ico:"calendar",v:anios[0]+"–"+anios[anios.length-1],l:"Período ("+anios.length+" años)",t:"Años de egreso cubiertos por los registros GRD."}
+  ];
+  $("#kpis").innerHTML=items.map(k=>`<div class="kpi" title="${k.t}"><span class="kico">${svgIco(k.ico,"")}</span><div><div class="kv">${k.v}</div><div class="kl">${k.l}</div></div></div>`).join("");
+})();
+
+render();
+</script>
+</body>
+</html>

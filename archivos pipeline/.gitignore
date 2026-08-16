@@ -1,0 +1,35 @@
+# === Datos (no se publican; se referencian por su SHA-256 en la tesis) ===
+datos crudos/
+GRD_PUBLICO_*.txt
+parquet/
+output/
+*.parquet
+
+# === Artefactos de modelado (pesados / derivados) ===
+resultados_modelado/
+resultados_modelado_alt/
+resultados_archivo/
+*.joblib
+modelado/**/figuras/
+
+# === Cachés de Quarto / RMarkdown ===
+*_cache/
+*_files/
+
+# === renv: subir renv.lock, .Rprofile y renv/activate.R; NO la librería ===
+renv/library/
+renv/local/
+renv/staging/
+renv/python/
+
+# === Temporales / basura ===
+_basura/
+_archivo/
+_ajenos/
+PREPROCE/
+.Rhistory
+.RData
+.Rproj.user/
+__pycache__/
+*.pyc
+.DS_Store

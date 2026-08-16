@@ -1,0 +1,740 @@
+---
+title: "MÓDULO 04: Análisis Estadístico — Variables Discriminantes"
+subtitle: "Caracterización Reumatológica GRD Chile 2019–2024"
+author: "Diego Oliva López | USACH"
+date: today
+lang: es
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "Ver código"
+    embed-resources: true
+    fig-width: 12
+    fig-height: 7
+    fig-dpi: 150
+    smooth-scroll: true
+    page-layout: full
+
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: false
+  cache-path: "_cache/analisis_estadistico/"
+
+knitr:
+  opts_chunk:
+    comment: ""
+    out.width: "100%"
+---
+
+```{r setup}
+#| cache: false
+
+paquetes <- c(
+  "arrow", "dplyr", "tidyr", "ggplot2", "purrr",
+  "scales", "stringr", "reactable", "htmltools", "glue"
+)
+
+faltantes <- paquetes[!sapply(paquetes, requireNamespace, quietly = TRUE)]
+if (length(faltantes) > 0) {
+  install.packages(faltantes, repos = "https://cloud.r-project.org")
+}
+
+invisible(lapply(paquetes, library, character.only = TRUE))
+
+tema_base <- theme_minimal(base_size = 11) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 12),
+    plot.subtitle    = element_text(size = 9, color = "gray40"),
+    panel.grid.minor = element_blank()
+  )
+
+fmt_n <- function(x) format(round(x), big.mark = ".", decimal.mark = ",")
+
+# ── Paleta de efecto ─────────────────────────────────────────────────────────
+# Convenciones de Cohen para V de Cramér y r biserial:
+# Pequeño ≥ 0.10 | Mediano ≥ 0.30 | Grande ≥ 0.50
+color_efecto <- function(v) {
+  dplyr::case_when(
+    v >= 0.50 ~ "#c0392b", # grande — rojo
+    v >= 0.30 ~ "#d68910", # mediano — naranja
+    v >= 0.10 ~ "#27ae60", # pequeño — verde
+    TRUE ~ "#bdc3c7" # trivial — gris
+  )
+}
+etiqueta_efecto <- function(v) {
+  dplyr::case_when(
+    v >= 0.50 ~ "Grande",
+    v >= 0.30 ~ "Mediano",
+    v >= 0.10 ~ "Pequeño",
+    TRUE ~ "Trivial"
+  )
+}
+```
+
+```{r cargar-datos}
+#| cache: false
+
+RUTA_CONSOLIDADO <- "output/datos_consolidados_etiquetados.parquet"
+if (!file.exists(RUTA_CONSOLIDADO)) {
+  stop(
+    "No se encontró ", RUTA_CONSOLIDADO,
+    ". Ejecuta primero 02_eda_cardinalidad.qmd para generarlo."
+  )
+}
+
+df_raw <- arrow::read_parquet(RUTA_CONSOLIDADO)
+
+# Variable objetivo: 1 = Reumatológico, 0 = No reumatológico
+df_raw$es_reum <- as.integer(df_raw$grupo_paciente == "Reumatológico")
+
+n_total <- nrow(df_raw)
+n_reum <- sum(df_raw$es_reum, na.rm = TRUE)
+n_nreum <- n_total - n_reum
+
+# ── Columnas a excluir del análisis estadístico ───────────────────────────────
+# Motivo A: internas del pipeline (etiquetas, no features)
+# Motivo B: identificadores — cardinalidad = n_filas, sin señal predictiva
+# Motivo C: fechas — alta cardinalidad numérica, se derivan en preprocesamiento
+# Motivo D: neonatal — 88-100% NA, dominio no reumatológico
+EXCLUIR <- c(
+  # Internas
+  "grupo_paciente", "anio", "es_reum",
+  # Identificadores
+  "CIP_ENCRIPTADO", "ID_BENEFICIARIO", "ID_PACIENTE",
+  "MEDICOINTERV1_ENCRIPTADO", "MEDICOALTA_ENCRIPTADO",
+  # Fechas (se derivarán en preprocesamiento)
+  "FECHA_NACIMIENTO", "FECHA_INGRESO", "FECHAALTA",
+  "FECHAINTERV1", "FECHAPROCEDIMIENTO1",
+  paste0("FECHATRASLADO", 1:9),
+  # Neonatal
+  paste0("CONDICIONDEALTANEONATO", 1:4),
+  paste0("PESORN", 1:4),
+  paste0("SEXORN", 1:4),
+  paste0("RN", 1:4, "ESTADO"),
+  # Otras ya decididas para eliminación
+  "HOSPPROCEDENCIA"
+)
+
+cols_analisis <- setdiff(names(df_raw), EXCLUIR)
+
+# ── Clasificar columnas en numéricas y categóricas ───────────────────────────
+es_numerica <- function(x) {
+  is.numeric(x) || (is.character(x) &&
+    mean(suppressWarnings(!is.na(as.numeric(x[!is.na(x)])))) >= 0.95)
+}
+
+tipo_col <- sapply(cols_analisis, function(col) {
+  if (es_numerica(df_raw[[col]])) "numerica" else "categorica"
+})
+
+cols_num <- names(tipo_col)[tipo_col == "numerica"]
+cols_cat <- names(tipo_col)[tipo_col == "categorica"]
+
+# Muestra estratificada para agilizar tests (máx 80k filas, proporcional)
+set.seed(42L)
+N_MUESTRA <- min(80000, as.numeric(n_total))
+idx <- c(
+  sample(which(df_raw$es_reum == 1L), min(n_reum, round(N_MUESTRA * as.numeric(n_reum) / as.numeric(n_total)))),
+  sample(which(df_raw$es_reum == 0L), min(n_nreum, round(N_MUESTRA * as.numeric(n_nreum) / as.numeric(n_total))))
+)
+df <- df_raw[idx, ]
+n_muestra <- nrow(df)
+```
+
+# Contexto del Análisis {#contexto}
+
+::: {.callout-important}
+**Objetivo:** identificar qué variables tienen una distribución **estadísticamente diferente**
+entre pacientes reumatológicos y no reumatológicos, y cuantificar el **tamaño del efecto**
+de esa diferencia. Los resultados informan las decisiones de preprocesamiento del Módulo 05.
+
+**Regla metodológica clave:** los tests se corren sobre el **dataset completo** — nunca sobre
+segmentos separados. La variable `grupo_paciente` es el **criterio de comparación**, no un filtro.
+:::
+
+```{r contexto-cards}
+#| results: asis
+
+tagList(tags$div(
+  style = "display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;",
+  purrr::map(list(
+    list(v = fmt_n(n_total), l = "Registros totales", c = "#1B3A5C"),
+    list(v = fmt_n(n_reum), l = "Reumatológicos", c = "#4E79A7"),
+    list(v = fmt_n(n_nreum), l = "No reumatológicos", c = "#27ae60"),
+    list(v = fmt_n(n_muestra), l = "Muestra para tests", c = "#6c3483"),
+    list(v = length(cols_cat), l = "Variables categóricas", c = "#d68910"),
+    list(v = length(cols_num), l = "Variables numéricas", c = "#c0392b")
+  ), function(d) {
+    tags$div(
+      style = glue("background:{d$c};color:white;border-radius:8px;
+                    padding:12px 18px;min-width:145px;"),
+      tags$div(style = "font-size:1.6em;font-weight:bold;", d$v),
+      tags$div(style = "font-size:0.8em;opacity:0.85;", d$l)
+    )
+  })
+))
+```
+
+**Corrección por comparaciones múltiples:** se aplica **FDR de Benjamini-Hochberg** sobre
+todos los p-valores de cada familia de tests (categóricas y numéricas por separado).
+Es preferible a Bonferroni para análisis exploratorio: controla la tasa de falsos descubrimientos
+sin ser tan conservador como para suprimir señales reales con muchas variables.
+
+**Tamaño de efecto:** la significancia estadística sola no es suficiente con muestras grandes.
+Con >80.000 registros, casi cualquier diferencia mínima resulta significativa (p < 0.05).
+La métrica relevante es el **tamaño del efecto**:
+
+- **V de Cramér** (categóricas): 0 = sin asociación, 1 = asociación perfecta
+- **r biserial de rangos** (numéricas): −1 a +1, donde |r| indica la magnitud
+
+Umbrales de Cohen: Trivial < 0.10 | Pequeño ≥ 0.10 | Mediano ≥ 0.30 | Grande ≥ 0.50
+
+---
+
+# Variables Categóricas — Chi-cuadrado y V de Cramér {#categoricas}
+
+```{r chi-cuadrado}
+#| cache: true
+#| cache.lazy: false
+
+# ── Función: chi-cuadrado + V de Cramér ──────────────────────────────────────
+test_chi <- function(col, datos) {
+  x <- as.character(datos[[col]])
+  y <- datos$es_reum
+  mask <- !is.na(x) & x != "" & x != "NULL" & !is.na(y)
+  x <- x[mask]
+  y <- y[mask]
+  n_val <- length(x)
+  n_cats <- length(unique(x))
+
+  if (n_val < 30L || n_cats < 2L) {
+    return(tibble(
+      variable = col, n_validos = n_val, n_cats = n_cats,
+      chi2 = NA_real_, df_chi = NA_real_,
+      p_valor = NA_real_, v_cramer = NA_real_,
+      efecto = "Sin datos", alta_cardinalidad = FALSE
+    ))
+  }
+
+  res <- tryCatch(
+    suppressWarnings(chisq.test(table(x, y), correct = FALSE)),
+    error = function(e) NULL
+  )
+  if (is.null(res)) {
+    return(tibble(
+      variable = col, n_validos = n_val, n_cats = n_cats,
+      chi2 = NA_real_, df_chi = NA_real_,
+      p_valor = NA_real_, v_cramer = NA_real_,
+      efecto = "Error", alta_cardinalidad = n_cats > 100L
+    ))
+  }
+
+  k <- min(nrow(res$observed), ncol(res$observed))
+  v <- if (k > 1L) sqrt(res$statistic / (n_val * (k - 1L))) else 0
+  v <- min(max(as.numeric(v), 0), 1)
+
+  tibble(
+    variable = col,
+    n_validos = n_val,
+    n_cats = n_cats,
+    chi2 = round(as.numeric(res$statistic), 2),
+    df_chi = as.integer(res$parameter),
+    p_valor = res$p.value,
+    v_cramer = round(v, 4),
+    efecto = etiqueta_efecto(v),
+    alta_cardinalidad = n_cats > 100L
+  )
+}
+
+res_cat <- purrr::map_dfr(cols_cat, test_chi, datos = df)
+
+# Corrección FDR sobre los p-valores válidos
+mask_validos <- !is.na(res_cat$p_valor)
+res_cat$p_ajustado <- NA_real_
+res_cat$p_ajustado[mask_validos] <-
+  p.adjust(res_cat$p_valor[mask_validos], method = "BH")
+
+res_cat <- res_cat |>
+  mutate(
+    sig_fdr = !is.na(p_ajustado) & p_ajustado < 0.05,
+    efecto = factor(efecto, levels = c(
+      "Grande", "Mediano", "Pequeño",
+      "Trivial", "Sin datos", "Error"
+    ))
+  ) |>
+  arrange(desc(v_cramer))
+```
+
+## Ranking por V de Cramér
+
+```{r plot-vcramer}
+res_cat_plot <- res_cat |>
+  filter(!is.na(v_cramer), v_cramer > 0) |>
+  slice_head(n = 30) |>
+  mutate(
+    variable = forcats::fct_reorder(variable, v_cramer),
+    color    = color_efecto(v_cramer)
+  )
+
+ggplot(res_cat_plot, aes(x = variable, y = v_cramer, fill = color)) +
+  geom_col(width = 0.75, show.legend = FALSE) +
+  geom_text(aes(label = round(v_cramer, 3)),
+    hjust = -0.1, size = 2.8, color = "gray30"
+  ) +
+  geom_hline(
+    yintercept = c(0.10, 0.30, 0.50),
+    linetype = "dashed", color = "gray50", linewidth = 0.4
+  ) +
+  annotate("text",
+    x = 0.5, y = c(0.105, 0.305, 0.505),
+    label = c("Pequeño", "Mediano", "Grande"),
+    hjust = 0, size = 2.5, color = "gray50"
+  ) +
+  coord_flip() +
+  scale_fill_identity() +
+  scale_y_continuous(expand = expansion(mult = c(0, .15)), limits = c(0, NA)) +
+  labs(
+    title = "Top 30 variables categóricas — V de Cramér vs grupo_paciente",
+    subtitle = "Rojo = efecto grande | Naranja = mediano | Verde = pequeño | Gris = trivial",
+    x = NULL, y = "V de Cramér"
+  ) +
+  tema_base
+```
+
+## Tabla completa de resultados
+
+```{r tabla-chi}
+reactable::reactable(
+  res_cat |>
+    select(
+      variable, n_cats, alta_cardinalidad, chi2, df_chi,
+      p_valor, p_ajustado, v_cramer, efecto, sig_fdr
+    ),
+  columns = list(
+    variable = reactable::colDef(
+      name = "Variable", minWidth = 200, sticky = "left"
+    ),
+    n_cats = reactable::colDef(
+      name = "N cats", align = "right"
+    ),
+    alta_cardinalidad = reactable::colDef(
+      name = ">100 cats", align = "center",
+      cell = function(v) if (isTRUE(v)) "⚠ Sí" else "—"
+    ),
+    chi2 = reactable::colDef(
+      name = "χ²", align = "right",
+      format = reactable::colFormat(digits = 1, separators = TRUE)
+    ),
+    df_chi = reactable::colDef(name = "df", align = "right"),
+    p_valor = reactable::colDef(
+      name = "p-valor", align = "right",
+      cell = reactable::JS("function(ci) {
+        const v = ci.value;
+        if (v === null) return '—';
+        const s = v < 0.001 ? '<0.001' : v.toFixed(4);
+        const c = v < 0.05 ? '#27ae60' : '#c0392b';
+        return `<span style='color:${c};font-weight:bold'>${s}</span>`;
+      }"), html = TRUE
+    ),
+    p_ajustado = reactable::colDef(
+      name = "p-adj (FDR)", align = "right",
+      cell = reactable::JS("function(ci) {
+        const v = ci.value;
+        if (v === null) return '—';
+        const s = v < 0.001 ? '<0.001' : v.toFixed(4);
+        const c = v < 0.05 ? '#27ae60' : '#c0392b';
+        return `<span style='color:${c};font-weight:bold'>${s}</span>`;
+      }"), html = TRUE
+    ),
+    v_cramer = reactable::colDef(
+      name = "V de Cramér", align = "right",
+      cell = reactable::JS("function(ci) {
+        const v = ci.value;
+        if (v === null) return '—';
+        const c = v >= 0.50 ? '#c0392b' : v >= 0.30 ? '#d68910' :
+                  v >= 0.10 ? '#27ae60' : '#bdc3c7';
+        return `<span style='color:${c};font-weight:bold'>${v}</span>`;
+      }"), html = TRUE
+    ),
+    efecto = reactable::colDef(name = "Efecto", align = "center"),
+    sig_fdr = reactable::colDef(
+      name = "Sig. FDR", align = "center",
+      cell = function(v) if (isTRUE(v)) "✔" else "✘"
+    )
+  ),
+  searchable = TRUE, filterable = TRUE, sortable = TRUE,
+  striped = TRUE, compact = TRUE, highlight = TRUE,
+  defaultPageSize = 20, showPageSizeOptions = TRUE,
+  pageSizeOptions = c(20, 50, 100),
+  defaultSorted = list(v_cramer = "desc"),
+  wrap = FALSE
+)
+```
+
+::: {.callout-warning}
+**Nota sobre variables de alta cardinalidad (>100 categorías):** el chi-cuadrado es técnicamente
+válido, pero el p-valor casi siempre será < 0.05 por el tamaño muestral. En estas variables
+(diagnósticos, servicios) la métrica relevante es la **V de Cramér** — si es < 0.10 (trivial)
+a pesar de ser significativo, la asociación no es clínicamente relevante.
+Las variables de diagnóstico (DIAGNOSTICO1–35) se transformarán en `tipo_reum` y
+`n_diagnosticos` en el Módulo 05, no se aplicará OHE directamente sobre ellas.
+:::
+
+---
+
+# Variables Numéricas — Mann-Whitney y r Biserial {#numericas}
+
+```{r mann-whitney}
+#| cache: true
+#| cache.lazy: false
+
+# ── Función: Mann-Whitney U + r biserial de rangos ───────────────────────────
+# r = 1 - (2·W) / (n1·n2)   |r| ∈ [0,1]
+test_mw <- function(col, datos) {
+  x <- suppressWarnings(as.numeric(datos[[col]]))
+  y <- datos$es_reum
+  mask <- !is.na(x) & is.finite(x) & !is.na(y)
+  x <- x[mask]
+  y <- y[mask]
+  n_val <- length(x)
+  n1 <- sum(y == 1L)
+  n0 <- sum(y == 0L)
+
+  if (n_val < 30L || n1 < 5L || n0 < 5L) {
+    return(tibble(
+      variable = col, n_validos = n_val,
+      media_reum = NA_real_, media_nreum = NA_real_,
+      mediana_reum = NA_real_, mediana_nreum = NA_real_,
+      W = NA_real_, p_valor = NA_real_, r_biserial = NA_real_,
+      efecto = "Sin datos"
+    ))
+  }
+
+  reum <- x[y == 1L]
+  nreum <- x[y == 0L]
+
+  res <- tryCatch(
+    wilcox.test(reum, nreum, exact = FALSE, correct = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(res)) {
+    return(tibble(
+      variable = col, n_validos = n_val,
+      media_reum = round(mean(reum), 3),
+      media_nreum = round(mean(nreum), 3),
+      mediana_reum = round(median(reum), 3),
+      mediana_nreum = round(median(nreum), 3),
+      W = NA_real_, p_valor = NA_real_, r_biserial = NA_real_,
+      efecto = "Error"
+    ))
+  }
+
+  W <- as.numeric(res$statistic)
+  r <- abs(1 - (2 * W) / (n1 * n0))
+  r <- min(max(r, 0), 1)
+
+  tibble(
+    variable      = col,
+    n_validos     = n_val,
+    media_reum    = round(mean(reum), 3),
+    media_nreum   = round(mean(nreum), 3),
+    mediana_reum  = round(median(reum), 3),
+    mediana_nreum = round(median(nreum), 3),
+    W             = round(W, 0),
+    p_valor       = res$p.value,
+    r_biserial    = round(r, 4),
+    efecto        = etiqueta_efecto(r)
+  )
+}
+
+res_num <- purrr::map_dfr(cols_num, test_mw, datos = df)
+
+mask_validos_num <- !is.na(res_num$p_valor)
+res_num$p_ajustado <- NA_real_
+res_num$p_ajustado[mask_validos_num] <-
+  p.adjust(res_num$p_valor[mask_validos_num], method = "BH")
+
+res_num <- res_num |>
+  mutate(
+    sig_fdr = !is.na(p_ajustado) & p_ajustado < 0.05,
+    efecto = factor(efecto, levels = c(
+      "Grande", "Mediano", "Pequeño",
+      "Trivial", "Sin datos", "Error"
+    ))
+  ) |>
+  arrange(desc(r_biserial))
+```
+
+## Ranking por r Biserial
+
+```{r plot-rbiserial}
+res_num_plot <- res_num |>
+  filter(!is.na(r_biserial), r_biserial > 0) |>
+  slice_head(n = 25) |>
+  mutate(
+    variable = forcats::fct_reorder(variable, r_biserial),
+    color    = color_efecto(r_biserial)
+  )
+
+ggplot(res_num_plot, aes(x = variable, y = r_biserial, fill = color)) +
+  geom_col(width = 0.75, show.legend = FALSE) +
+  geom_text(aes(label = round(r_biserial, 3)),
+    hjust = -0.1, size = 2.8, color = "gray30"
+  ) +
+  geom_hline(
+    yintercept = c(0.10, 0.30, 0.50),
+    linetype = "dashed", color = "gray50", linewidth = 0.4
+  ) +
+  annotate("text",
+    x = 0.5, y = c(0.105, 0.305, 0.505),
+    label = c("Pequeño", "Mediano", "Grande"),
+    hjust = 0, size = 2.5, color = "gray50"
+  ) +
+  coord_flip() +
+  scale_fill_identity() +
+  scale_y_continuous(expand = expansion(mult = c(0, .15)), limits = c(0, NA)) +
+  labs(
+    title = "Top 25 variables numéricas — r Biserial vs grupo_paciente",
+    subtitle = "Rojo = efecto grande | Naranja = mediano | Verde = pequeño | Gris = trivial",
+    x = NULL, y = "|r| biserial de rangos"
+  ) +
+  tema_base
+```
+
+## Tabla completa de resultados
+
+```{r tabla-mw}
+reactable::reactable(
+  res_num |>
+    select(
+      variable, n_validos, media_reum, media_nreum,
+      mediana_reum, mediana_nreum,
+      p_valor, p_ajustado, r_biserial, efecto, sig_fdr
+    ),
+  columns = list(
+    variable = reactable::colDef(name = "Variable", minWidth = 200, sticky = "left"),
+    n_validos = reactable::colDef(
+      name = "N válidos", align = "right",
+      format = reactable::colFormat(separators = TRUE)
+    ),
+    media_reum = reactable::colDef(name = "Media reum.", align = "right"),
+    media_nreum = reactable::colDef(name = "Media no-reum.", align = "right"),
+    mediana_reum = reactable::colDef(name = "Med. reum.", align = "right"),
+    mediana_nreum = reactable::colDef(name = "Med. no-reum.", align = "right"),
+    p_valor = reactable::colDef(
+      name = "p-valor", align = "right",
+      cell = reactable::JS("function(ci) {
+        const v = ci.value;
+        if (v === null) return '—';
+        const s = v < 0.001 ? '<0.001' : v.toFixed(4);
+        const c = v < 0.05 ? '#27ae60' : '#c0392b';
+        return `<span style='color:${c};font-weight:bold'>${s}</span>`;
+      }"), html = TRUE
+    ),
+    p_ajustado = reactable::colDef(
+      name = "p-adj (FDR)", align = "right",
+      cell = reactable::JS("function(ci) {
+        const v = ci.value;
+        if (v === null) return '—';
+        const s = v < 0.001 ? '<0.001' : v.toFixed(4);
+        const c = v < 0.05 ? '#27ae60' : '#c0392b';
+        return `<span style='color:${c};font-weight:bold'>${s}</span>`;
+      }"), html = TRUE
+    ),
+    r_biserial = reactable::colDef(
+      name = "|r| biserial", align = "right",
+      cell = reactable::JS("function(ci) {
+        const v = ci.value;
+        if (v === null) return '—';
+        const c = v >= 0.50 ? '#c0392b' : v >= 0.30 ? '#d68910' :
+                  v >= 0.10 ? '#27ae60' : '#bdc3c7';
+        return `<span style='color:${c};font-weight:bold'>${v}</span>`;
+      }"), html = TRUE
+    ),
+    efecto = reactable::colDef(name = "Efecto", align = "center"),
+    sig_fdr = reactable::colDef(
+      name = "Sig. FDR", align = "center",
+      cell = function(v) if (isTRUE(v)) "✔" else "✘"
+    )
+  ),
+  searchable = TRUE, filterable = TRUE, sortable = TRUE,
+  striped = TRUE, compact = TRUE, highlight = TRUE,
+  defaultPageSize = 20, showPageSizeOptions = TRUE,
+  pageSizeOptions = c(20, 50),
+  defaultSorted = list(r_biserial = "desc"),
+  wrap = FALSE
+)
+```
+
+---
+
+# Resumen Ejecutivo {#resumen}
+
+```{r resumen-ejecutivo}
+#| results: asis
+
+# ── Resumen categóricas ───────────────────────────────────────────────────────
+cat_resumen <- res_cat |>
+  filter(!is.na(v_cramer)) |>
+  count(efecto) |>
+  mutate(tipo = "Categórica")
+
+num_resumen <- res_num |>
+  filter(!is.na(r_biserial)) |>
+  count(efecto) |>
+  mutate(tipo = "Numérica")
+
+# Top discriminantes categóricas
+top_cat <- res_cat |>
+  filter(!is.na(v_cramer), sig_fdr, v_cramer >= 0.10) |>
+  arrange(desc(v_cramer)) |>
+  slice_head(n = 15)
+
+# Top discriminantes numéricas
+top_num <- res_num |>
+  filter(!is.na(r_biserial), sig_fdr, r_biserial >= 0.10) |>
+  arrange(desc(r_biserial)) |>
+  slice_head(n = 15)
+
+tagList(
+  tags$h3("Variables con mayor poder discriminante"),
+  tags$p(
+    style = "font-size:.9em;color:#555;",
+    glue(
+      "Significativas tras FDR y con efecto ≥ Pequeño (≥0.10). ",
+      "{nrow(top_cat)} categóricas y {nrow(top_num)} numéricas seleccionadas."
+    )
+  ),
+  tags$div(
+    style = "display:flex;gap:20px;flex-wrap:wrap;",
+    tags$div(
+      style = "flex:1;min-width:320px;",
+      tags$h4("Categóricas (por V de Cramér)"),
+      reactable::reactable(
+        top_cat |> select(variable, n_cats, v_cramer, efecto),
+        columns = list(
+          variable = reactable::colDef(name = "Variable", minWidth = 160),
+          n_cats = reactable::colDef(name = "Cats", align = "right"),
+          v_cramer = reactable::colDef(
+            name = "V Cramér", align = "right",
+            cell = reactable::JS("function(ci){
+              const v=ci.value;
+              const c=v>=.5?'#c0392b':v>=.3?'#d68910':v>=.1?'#27ae60':'#bdc3c7';
+              return `<b style='color:${c}'>${v}</b>`;
+            }"), html = TRUE
+          ),
+          efecto = reactable::colDef(name = "Efecto", align = "center")
+        ),
+        compact = TRUE, striped = TRUE, highlight = TRUE,
+        defaultPageSize = 15, showPagination = FALSE
+      )
+    ),
+    tags$div(
+      style = "flex:1;min-width:320px;",
+      tags$h4("Numéricas (por r Biserial)"),
+      reactable::reactable(
+        top_num |> select(variable, media_reum, media_nreum, r_biserial, efecto),
+        columns = list(
+          variable = reactable::colDef(name = "Variable", minWidth = 160),
+          media_reum = reactable::colDef(name = "Media reum.", align = "right"),
+          media_nreum = reactable::colDef(name = "Media no-reum.", align = "right"),
+          r_biserial = reactable::colDef(
+            name = "|r|", align = "right",
+            cell = reactable::JS("function(ci){
+              const v=ci.value;
+              const c=v>=.5?'#c0392b':v>=.3?'#d68910':v>=.1?'#27ae60':'#bdc3c7';
+              return `<b style='color:${c}'>${v}</b>`;
+            }"), html = TRUE
+          ),
+          efecto = reactable::colDef(name = "Efecto", align = "center")
+        ),
+        compact = TRUE, striped = TRUE, highlight = TRUE,
+        defaultPageSize = 15, showPagination = FALSE
+      )
+    )
+  )
+)
+```
+
+## Distribución de tamaños de efecto
+
+```{r plot-resumen-efecto}
+bind_rows(cat_resumen, num_resumen) |>
+  filter(efecto %in% c("Grande", "Mediano", "Pequeño", "Trivial")) |>
+  mutate(efecto = factor(efecto, levels = c(
+    "Grande", "Mediano",
+    "Pequeño", "Trivial"
+  ))) |>
+  ggplot(aes(x = efecto, y = n, fill = efecto)) +
+  geom_col(width = 0.65, show.legend = FALSE) +
+  geom_text(aes(label = n), vjust = -0.4, size = 3.5, fontface = "bold") +
+  scale_fill_manual(values = c(
+    "Grande"  = "#c0392b", "Mediano" = "#d68910",
+    "Pequeño" = "#27ae60", "Trivial" = "#bdc3c7"
+  )) +
+  scale_y_continuous(expand = expansion(mult = c(0, .15))) +
+  facet_wrap(~tipo, scales = "free_y") +
+  labs(
+    title = "Distribución de tamaños de efecto por tipo de variable",
+    subtitle = "Variables con p-adj (FDR) < 0.05",
+    x = "Tamaño de efecto", y = "N variables"
+  ) +
+  tema_base
+```
+
+---
+
+# Notas Metodológicas {#notas}
+
+```{r notas}
+#| results: asis
+
+tagList(
+  tags$div(
+    style = "background:#f8f9fa;border-left:4px solid #4E79A7;
+             padding:16px;border-radius:4px;font-size:0.88em;",
+    tags$h4("Metadatos de esta ejecución"),
+    tags$ul(
+      tags$li(glue("Fecha: {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")),
+      tags$li(glue("Fuente: output/datos_consolidados_etiquetados.parquet")),
+      tags$li(glue("N total: {fmt_n(n_total)} | N reumatológico: {fmt_n(n_reum)}")),
+      tags$li(glue("Muestra para tests: {fmt_n(n_muestra)} filas (estratificada proporcional)")),
+      tags$li(glue("Variables categóricas evaluadas: {length(cols_cat)}")),
+      tags$li(glue("Variables numéricas evaluadas: {length(cols_num)}")),
+      tags$li("Corrección múltiple: FDR Benjamini-Hochberg (α = 0.05)"),
+      tags$li("Tests: Chi-cuadrado (Pearson, sin corrección Yates) + Mann-Whitney U (bilateral)")
+    )
+  ),
+  tags$br(),
+  tags$div(
+    style = "background:#fff3cd;border-left:4px solid #f39c12;
+             padding:12px 16px;border-radius:4px;font-size:0.86em;",
+    tags$strong("Limitaciones: "),
+    tags$ul(
+      tags$li(
+        "Con N > 80.000, la significancia estadística es casi garantizada. ",
+        "El tamaño de efecto (V de Cramér, r biserial) es la métrica principal."
+      ),
+      tags$li(
+        "Variables con >100 categorías (diagnósticos, servicios): ",
+        "el chi-cuadrado puede tener celdas con frecuencia esperada < 5. ",
+        "Interpretar V de Cramér con cautela; estas variables se transformarán en el Módulo 05."
+      ),
+      tags$li(
+        "La muestra estratificada de 80k filas preserva la proporción reumatológico/global ",
+        "para no sesgar los estadísticos de grupo."
+      )
+    )
+  )
+)
+```

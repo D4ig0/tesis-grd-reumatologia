@@ -1,0 +1,1647 @@
+---
+title: "MÓDULO 02: EDA de Cardinalidad — Variables Categóricas"
+subtitle: "Caracterización Reumatológica GRD Chile 2019–2024"
+author: "Diego Oliva López | USACH"
+date: today
+lang: es
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "Ver código"
+    df-print: paged
+    embed-resources: true        # HTML autocontenido — un solo archivo
+    fig-width: 11
+    fig-height: 6
+    fig-dpi: 150
+    smooth-scroll: true
+    page-layout: full
+
+execute:
+  echo: false          # Oculta código por defecto; el lector puede expandirlo
+  warning: false
+  message: false
+  cache: true          # Cachea renders costosos — borrar _cache/ si cambias datos
+  cache-path: "_cache/eda_cardinalidad/"
+
+knitr:
+  opts_chunk:
+    comment: ""
+    out.width: "100%"
+---
+
+```{r setup}
+#| cache: false   # Este chunk nunca se cachea — siempre corre primero
+
+# ── Paquetes ────────────────────────────────────────────────────────────────
+paquetes <- c(
+  "dplyr", "ggplot2", "purrr", "forcats", "scales",
+  "stringr", "DT", "plotly", "reactable", "htmltools",
+  "ggtext", "glue", "tidyr", "knitr", "kableExtra", "readr"
+)
+
+faltantes <- paquetes[!sapply(paquetes, requireNamespace, quietly = TRUE)]
+if (length(faltantes) > 0) install.packages(faltantes, repos = "https://cloud.r-project.org")
+
+suppressPackageStartupMessages(lapply(paquetes, library, character.only = TRUE))
+
+# ── Carga de datos preprocesados ─────────────────────────────────────────────
+# _prep_cardinalidad.R genera `datos_eda` con todas las métricas calculadas.
+# Cuenta con caché automática en 'output/datos_eda.rds': si los Parquets y los
+# scripts auxiliares no han cambiado, carga el .rds en segundos en lugar de
+# reprocesar todos los años.
+source("_prep_cardinalidad.R")
+
+# Desempaquetar para comodidad
+df_res <- datos_eda$df_resumen_vars
+lista_tops <- datos_eda$lista_top_cats
+df_temp <- datos_eda$df_temporal
+meta <- datos_eda$meta
+tipo_cols <- datos_eda$tipo_cols
+alertas_cols <- datos_eda$alertas_cols # named vector: NA o mensaje de alerta
+
+# Garantizar que df_res tenga la columna `alerta` aunque venga de caché antiguo
+if (!"alerta" %in% colnames(df_res)) {
+  df_res <- df_res |>
+    dplyr::mutate(alerta = alertas_cols[variable])
+}
+
+# ── Paleta y tema ────────────────────────────────────────────────────────────
+COLORES_ESTRATEGIA <- c(
+  "OHE_DIRECTO"          = "#2ecc71",
+  "AGRUPAR"              = "#f39c12",
+  "TRANSFORMAR"          = "#e74c3c",
+  "ELIMINAR_O_EMBEDDING" = "#8e44ad",
+  "SIN_DATOS"            = "#bdc3c7"
+)
+
+COLORES_GRUPO <- c("Global" = "#4E79A7", "Reumatológico" = "#F28E2B")
+
+tema_reporte <- function(base = 11) {
+  theme_minimal(base_size = base) +
+    theme(
+      plot.title       = element_text(face = "bold", size = base + 2),
+      plot.subtitle    = element_text(color = "grey45", size = base - 1),
+      strip.background = element_rect(fill = "#F0F4F8", color = NA),
+      strip.text       = element_text(face = "bold"),
+      panel.grid.minor = element_blank(),
+      legend.position  = "bottom"
+    )
+}
+
+# ── Función helper: badge HTML coloreado ────────────────────────────────────
+badge <- function(texto, color) {
+  htmltools::tags$span(
+    style = glue::glue(
+      "background:{color};color:white;padding:2px 8px;",
+      "border-radius:4px;font-size:0.78em;font-weight:bold;"
+    ),
+    texto
+  )
+}
+
+color_estrategia <- function(e) {
+  dplyr::case_when(
+    e == "OHE_DIRECTO" ~ "#27ae60",
+    e == "AGRUPAR" ~ "#d68910",
+    e == "TRANSFORMAR" ~ "#c0392b",
+    e == "ELIMINAR_O_EMBEDDING" ~ "#6c3483",
+    TRUE ~ "#7f8c8d"
+  )
+}
+
+# Formato numérico sin conflicto de locale chileno (big.mark != decimal.mark)
+fmt_n <- function(n) format(round(n), big.mark = ",", scientific = FALSE)
+```
+
+::: {.callout-note}
+**Regla fundamental de este módulo:** los datos se analizan en su estado **crudo**, sin filtrar ni transformar ninguna variable. El objetivo es *describir para decidir* en el Módulo 4.
+:::
+
+::: {.callout-tip}
+### 🚀 Sistema de Caché e Integración
+* **Caché Automático**: Este reporte compila al instante gracias a que los datos procesados se guardan en `output/datos_eda.rds`. Si agregas o actualizas archivos parquets o scripts, la caché se invalidará y regenerará automáticamente.
+* **Forzar Reconstrucción**: Si necesitas forzar el cálculo de nuevo, puedes correr `FORZAR_RECONSTRUCCION <- TRUE` en tu consola de R antes de compilar o borrar el archivo `.rds` de la carpeta `output/`.
+* **Guardado de Datos**: Los datos anuales consolidados y con la columna `grupo_paciente` (etiquetado de reumatología) y `anio` ya incorporados se guardan en `output/datos_consolidados_etiquetados.parquet` con sanitización de caracteres UTF-8 defensiva, listos para tus análisis subsiguientes en la tesis.
+:::
+
+# Resumen Ejecutivo del Dataset {#resumen}
+
+```{r resumen-dashboard}
+#| fig-height: 3
+
+# ── Conteo por estrategia ────────────────────────────────────────────────────
+conteo_est <- df_res |>
+  count(estrategia) |>
+  mutate(estrategia = factor(estrategia, levels = names(COLORES_ESTRATEGIA)))
+
+# ── Tarjetas de resumen ──────────────────────────────────────────────────────
+tagList(
+  tags$div(
+    style = "display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px;",
+
+    # Tarjeta 1: Total registros
+    tags$div(
+      style = "background:#1B3A5C;color:white;border-radius:8px;padding:16px 24px;min-width:180px;",
+      tags$div(
+        style = "font-size:2em;font-weight:bold;",
+        fmt_n(meta$n_filas)
+      ),
+      tags$div(style = "font-size:0.85em;opacity:0.8;", "Registros totales (2019–2024)")
+    ),
+
+    # Tarjeta 2: Reumatológicos
+    tags$div(
+      style = "background:#F28E2B;color:white;border-radius:8px;padding:16px 24px;min-width:180px;",
+      tags$div(
+        style = "font-size:2em;font-weight:bold;",
+        fmt_n(meta$n_reum)
+      ),
+      tags$div(
+        style = "font-size:0.85em;opacity:0.8;",
+        glue("Reumatológicos ({round(100*meta$n_reum/meta$n_filas,1)}%)")
+      )
+    ),
+
+    # Tarjeta 3: Variables categóricas
+    tags$div(
+      style = "background:#4E79A7;color:white;border-radius:8px;padding:16px 24px;min-width:180px;",
+      tags$div(style = "font-size:2em;font-weight:bold;", nrow(df_res)),
+      tags$div(style = "font-size:0.85em;opacity:0.8;", "Variables categóricas analizadas")
+    ),
+
+    # Tarjeta 4: OHE directo
+    tags$div(
+      style = "background:#27ae60;color:white;border-radius:8px;padding:16px 24px;min-width:180px;",
+      tags$div(
+        style = "font-size:2em;font-weight:bold;",
+        sum(df_res$estrategia == "OHE_DIRECTO")
+      ),
+      tags$div(
+        style = "font-size:0.85em;opacity:0.8;",
+        glue("OHE directo (≤{meta$umbral_ohe} cats)")
+      )
+    ),
+
+    # Tarjeta 5: Con alerta metodológica
+    tags$div(
+      style = "background:#f39c12;color:white;border-radius:8px;padding:16px 24px;min-width:180px;",
+      tags$div(
+        style = "font-size:2em;font-weight:bold;",
+        sum(!is.na(df_res$alerta))
+      ),
+      tags$div(style = "font-size:0.85em;opacity:0.8;", "Con alerta metodológica")
+    )
+  )
+)
+```
+
+## Distribución de Estrategias
+
+```{r grafico-estrategias}
+#| fig-height: 4.5
+
+p_est <- conteo_est |>
+  ggplot(aes(x = reorder(estrategia, n), y = n, fill = estrategia)) +
+  geom_col(width = 0.65, show.legend = FALSE) +
+  geom_text(aes(label = n), hjust = -0.2, fontface = "bold", size = 4) +
+  scale_fill_manual(values = COLORES_ESTRATEGIA) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  coord_flip() +
+  labs(
+    title = "Variables categóricas por estrategia de encoding sugerida",
+    subtitle = glue(
+      "Umbral OHE directo: ≤{meta$umbral_ohe} cats | ",
+      "Agrupar: {meta$umbral_ohe+1}–{meta$umbral_agrupar} cats | ",
+      ">50: Transformar/Eliminar"
+    ),
+    x = NULL, y = "Número de variables"
+  ) +
+  tema_reporte()
+
+ggplotly(p_est, tooltip = c("y", "x")) |>
+  plotly::layout(margin = list(l = 170))
+```
+
+## Panorama de Cardinalidad
+
+> Navega entre páginas con los botones. Cada página muestra 30 variables ordenadas de mayor a menor cardinalidad.
+
+```{r panorama-cardinalidad}
+#| fig-height: 2
+
+VARS_POR_PAG <- 30L
+
+df_card_ord <- df_res |>
+  arrange(desc(n_cats_global)) |>
+  mutate(
+    rank       = row_number(),
+    estrategia = factor(estrategia, levels = names(COLORES_ESTRATEGIA))
+  )
+
+n_total_vars <- nrow(df_card_ord)
+n_paginas <- ceiling(n_total_vars / VARS_POR_PAG)
+
+lollipop_pagina <- function(pagina) {
+  idx_ini <- (pagina - 1L) * VARS_POR_PAG + 1L
+  idx_fin <- min(pagina * VARS_POR_PAG, n_total_vars)
+
+  df_pag <- df_card_ord[idx_ini:idx_fin, ] |>
+    arrange(n_cats_global) |>
+    mutate(variable = factor(variable, levels = variable))
+
+  hover_txt <- paste0(
+    "<b>", df_pag$variable, "</b><br>",
+    "Cats global: ", df_pag$n_cats_global, "<br>",
+    "Cats reum.: ", df_pag$n_cats_reum, "<br>",
+    "Estrategia: ", df_pag$estrategia, "<br>",
+    "% NA global: ", df_pag$pct_na_global, "%"
+  )
+
+  plotly::plot_ly(df_pag) |>
+    plotly::add_segments(
+      x = 1, xend = ~n_cats_global,
+      y = ~variable, yend = ~variable,
+      line = list(color = "lightgrey", width = 1.5),
+      showlegend = FALSE, hoverinfo = "none"
+    ) |>
+    plotly::add_markers(
+      x = ~n_cats_global, y = ~variable,
+      color = ~estrategia, colors = COLORES_ESTRATEGIA,
+      marker = list(size = 10),
+      text = hover_txt, hoverinfo = "text"
+    ) |>
+    plotly::layout(
+      title = list(
+        text = paste0(
+          "<b>Cardinalidad por variable</b>  ",
+          "<span style='font-size:12px;color:grey'>",
+          "Pag. ", pagina, "/", n_paginas,
+          "  |  vars ", idx_ini, "-", idx_fin,
+          " de ", n_total_vars, "</span>"
+        ),
+        font = list(size = 14)
+      ),
+      xaxis = list(
+        title = "N de categorias unicas (escala log)",
+        type = "log", tickformat = ",d", gridcolor = "#eeeeee"
+      ),
+      yaxis = list(
+        title = "", tickfont = list(size = 10), automargin = TRUE
+      ),
+      legend = list(
+        title = list(text = "<b>Estrategia</b>"),
+        orientation = "h", x = 0, y = -0.15
+      ),
+      margin = list(l = 20, r = 20, t = 60, b = 80),
+      height = 60 + VARS_POR_PAG * 22,
+      paper_bgcolor = "white", plot_bgcolor = "white"
+    )
+}
+
+plots_html <- lapply(seq_len(n_paginas), function(p) {
+  htmltools::div(
+    id    = paste0("lollipop_pag_", p),
+    style = if (p == 1) "display:block" else "display:none",
+    plotly::as_widget(lollipop_pagina(p))
+  )
+})
+
+nav_script <- htmltools::tags$script(htmltools::HTML(paste0("
+  var _lp_cur = 1;
+  var _lp_max = ", n_paginas, ";
+  function _lp_ir(nueva) {
+    if (nueva < 1 || nueva > _lp_max) return;
+    document.getElementById('lollipop_pag_' + _lp_cur).style.display = 'none';
+    _lp_cur = nueva;
+    document.getElementById('lollipop_pag_' + _lp_cur).style.display = 'block';
+    document.getElementById('_lp_info').innerText = 'Pagina ' + _lp_cur + ' de ' + _lp_max;
+  }
+")))
+
+nav_ui <- htmltools::div(
+  style = "display:flex;align-items:center;gap:12px;margin:8px 0 4px 0;font-family:sans-serif;",
+  htmltools::tags$button(
+    "< Anterior",
+    onclick = "_lp_ir(_lp_cur - 1)",
+    style = "padding:6px 16px;border:1px solid #4E79A7;border-radius:6px;background:#4E79A7;color:white;cursor:pointer;font-size:13px;"
+  ),
+  htmltools::tags$span(
+    id = "_lp_info",
+    style = "font-size:13px;color:#555;min-width:110px;text-align:center;",
+    paste0("Pagina 1 de ", n_paginas)
+  ),
+  htmltools::tags$button(
+    "Siguiente >",
+    onclick = "_lp_ir(_lp_cur + 1)",
+    style = "padding:6px 16px;border:1px solid #4E79A7;border-radius:6px;background:#4E79A7;color:white;cursor:pointer;font-size:13px;"
+  ),
+  htmltools::tags$span(
+    style = "font-size:11px;color:#999;margin-left:8px;",
+    paste0("(", VARS_POR_PAG, " variables por pagina, ", n_total_vars, " en total)")
+  )
+)
+
+htmltools::tagList(nav_ui, plots_html, nav_script)
+```
+
+---
+
+# Tabla Maestra de Cardinalidad {#tabla-maestra}
+
+> Busca, ordena o filtra cualquier variable. La columna **Estrategia** indica la acción sugerida. Haz clic en los encabezados para ordenar.
+
+```{r tabla-maestra}
+df_tabla <- df_res |>
+  select(
+    Variable = variable,
+    Alerta = alerta,
+    `Cats (Global)` = n_cats_global,
+    `Cats (Reum.)` = n_cats_reum,
+    `% NA Global` = pct_na_global,
+    `% NA Reum.` = pct_na_reum,
+    `Top10 cob. G%` = cob_top10_global,
+    `Top20 cob. G%` = cob_top20_global,
+    `Top50 cob. G%` = cob_top50_global,
+    `Top10 cob. R%` = cob_top10_reum,
+    `Top20 cob. R%` = cob_top20_reum,
+    `Moda Global` = moda_global,
+    Estrategia = estrategia
+  )
+
+reactable::reactable(
+  df_tabla,
+  filterable = TRUE,
+  searchable = TRUE,
+  sortable = TRUE,
+  pagination = TRUE,
+  defaultPageSize = 20,
+  showPageSizeOptions = TRUE,
+  pageSizeOptions = c(10, 20, 50, 100),
+  highlight = TRUE,
+  striped = TRUE,
+  compact = TRUE,
+  wrap = FALSE,
+  defaultColDef = reactable::colDef(minWidth = 110),
+  defaultSorted = list(`Cats (Global)` = "desc"),
+  columns = list(
+    Variable = reactable::colDef(minWidth = 160, sticky = "left"),
+    Alerta = reactable::colDef(
+      minWidth = 200,
+      cell = function(value) {
+        if (is.na(value)) {
+          return(htmltools::tags$span(style = "color:#bdc3c7;", "—"))
+        }
+        htmltools::tags$span(
+          style = "font-size:0.80em;color:#7f8c8d;",
+          paste0("🔔 ", value)
+        )
+      }
+    ),
+    `Cats (Global)` = reactable::colDef(
+      style = function(value) {
+        color <- if (value > 200) {
+          "#6c3483"
+        } else if (value > 50) {
+          "#c0392b"
+        } else if (value > 10) {
+          "#d68910"
+        } else {
+          "#27ae60"
+        }
+        list(color = color, fontWeight = "bold")
+      }
+    ),
+    Estrategia = reactable::colDef(
+      minWidth = 160,
+      cell = function(value) {
+        color <- color_estrategia(value)
+        htmltools::tags$span(
+          style = glue::glue(
+            "background:{color};color:white;padding:2px 8px;",
+            "border-radius:12px;font-size:0.78em;font-weight:bold;"
+          ),
+          value
+        )
+      }
+    ),
+    `Top10 cob. G%` = reactable::colDef(
+      cell = reactable::JS("function(cellInfo) {
+        const val = cellInfo.value;
+        if (val === null) return '—';
+        const color = val >= 90 ? '#27ae60' : val >= 70 ? '#d68910' : '#c0392b';
+        return `<span style='color:${color};font-weight:bold'>${val}%</span>`;
+      }"),
+      html = TRUE
+    ),
+    `Top20 cob. G%` = reactable::colDef(
+      cell = reactable::JS("function(cellInfo) {
+        const val = cellInfo.value;
+        if (val === null) return '—';
+        const color = val >= 90 ? '#27ae60' : val >= 70 ? '#d68910' : '#c0392b';
+        return `<span style='color:${color};font-weight:bold'>${val}%</span>`;
+      }"),
+      html = TRUE
+    )
+  )
+)
+```
+
+---
+
+# Análisis por Estrategia {#por-estrategia}
+
+## 🟢 OHE Directo — ≤ `r meta$umbral_ohe` categorías {#ohe-directo}
+
+Variables donde el One-Hot Encoding se puede aplicar sin riesgo de explosión dimensional. Igualmente conviene verificar que las categorías tienen sentido clínico.
+
+```{r vars-ohe}
+vars_ohe <- df_res |>
+  filter(estrategia == "OHE_DIRECTO") |>
+  arrange(desc(n_cats_global))
+
+if (nrow(vars_ohe) == 0) {
+  cat("No hay variables en esta categoría.")
+} else {
+  vars_ohe |>
+    select(
+      Variable = variable, `Cats` = n_cats_global,
+      `Moda Global` = moda_global, `% NA` = pct_na_global
+    ) |>
+    kable(align = "lrrll") |>
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = FALSE, font_size = 13
+    )
+}
+```
+
+## 🟡 Requieren Agrupación — `r meta$umbral_ohe + 1`–`r meta$umbral_agrupar` categorías {#agrupar}
+
+::: {.callout-warning}
+Estas variables **no son viables para OHE directo** sin reducción previa. La estrategia habitual es: (1) conservar Top-K, (2) agrupar el resto en `"OTRO"`, o (3) crear variables derivadas (ej. región en vez de comuna).
+:::
+
+```{r vars-agrupar-tabla}
+vars_agr <- df_res |>
+  filter(estrategia == "AGRUPAR") |>
+  arrange(desc(n_cats_global))
+
+if (nrow(vars_agr) > 0) {
+  vars_agr |>
+    select(
+      Variable = variable,
+      `Cats G.` = n_cats_global,
+      `Cats R.` = n_cats_reum,
+      `Top10 G%` = cob_top10_global,
+      `Top20 G%` = cob_top20_global,
+      `Top10 R%` = cob_top10_reum,
+      `Top20 R%` = cob_top20_reum,
+      `Moda Global` = moda_global
+    ) |>
+    reactable::reactable(
+      sortable = TRUE, striped = TRUE, compact = TRUE,
+      highlight = TRUE, defaultPageSize = 15
+    )
+}
+```
+
+### Gráficos de barras — Agrupación {#graficos-agrupar}
+
+```{r graficos-agrupar}
+#| results: asis
+
+vars_plot_agr <- vars_agr$variable
+
+purrr::walk(vars_plot_agr, function(var) {
+  tops <- lista_tops[[var]]
+  if (is.null(tops) || nrow(tops) == 0) {
+    return(invisible())
+  }
+
+  n_cats_total <- df_res$n_cats_global[df_res$variable == var]
+  cob_top20 <- df_res$cob_top20_global[df_res$variable == var]
+  estrategia_var <- df_res$estrategia[df_res$variable == var]
+
+  tops_long <- tops |>
+    tidyr::pivot_longer(
+      cols      = c(prop_global, prop_reum),
+      names_to  = "grupo",
+      values_to = "proporcion"
+    ) |>
+    mutate(
+      grupo = ifelse(grupo == "prop_global", "Global", "Reumatológico"),
+      grupo = factor(grupo, levels = c("Global", "Reumatológico")),
+      valor = forcats::fct_reorder(valor, proporcion, .fun = max)
+    )
+
+  p <- ggplot(
+    tops_long,
+    aes(x = proporcion, y = valor, fill = grupo)
+  ) +
+    geom_col(position = "dodge", width = 0.65) +
+    scale_fill_manual(values = COLORES_GRUPO, name = "Grupo") +
+    scale_x_continuous(
+      labels = scales::percent_format(scale = 1),
+      expand = expansion(mult = c(0, 0.08))
+    ) +
+    labs(
+      title = glue("**{var}**"),
+      subtitle = glue(
+        "{n_cats_total} categorías únicas (global) | ",
+        "Top 20 cubre {cob_top20}% | Estrategia: {estrategia_var}"
+      ),
+      x = "Proporción (%)", y = NULL,
+      caption = glue("Top {meta$top_n_barras} de {n_cats_total} categorías mostradas")
+    ) +
+    tema_reporte() +
+    theme(plot.title = ggtext::element_markdown())
+
+  # Envolver en plotly para interactividad
+  cat("\n\n")
+  print(htmltools::tagList(
+    plotly::ggplotly(p, tooltip = c("y", "x", "fill")) |>
+      plotly::layout(
+        legend = list(orientation = "h", y = -0.15),
+        margin = list(l = 180)
+      )
+  ))
+  cat("\n\n")
+})
+```
+
+## 🔴 Transformación Profunda — 51–200 categorías {#transformar}
+
+::: {.callout-important}
+El OHE de estas variables generaría decenas o cientos de columnas esparsas. Estrategias recomendadas: **agrupación jerárquica** (ej. CIE-10 a nivel de capítulo), **target encoding**, **frecuency encoding**, o **eliminación** si no aporta valor clínico.
+:::
+
+```{r vars-transformar}
+vars_transf <- df_res |>
+  filter(estrategia == "TRANSFORMAR") |>
+  arrange(desc(n_cats_global))
+
+if (nrow(vars_transf) == 0) {
+  cat("No hay variables en esta categoría.")
+} else {
+  vars_transf |>
+    select(
+      Variable = variable,
+      `Cats G.` = n_cats_global,
+      `Cats R.` = n_cats_reum,
+      `Top10 G%` = cob_top10_global,
+      `Top20 G%` = cob_top20_global,
+      `Top50 G%` = cob_top50_global,
+      `Moda` = moda_global
+    ) |>
+    reactable::reactable(
+      sortable = TRUE, striped = TRUE,
+      compact = TRUE, highlight = TRUE,
+      defaultPageSize = 15,
+      defaultSorted = list(`Cats G.` = "desc")
+    )
+}
+```
+
+```{r graficos-transformar}
+#| results: asis
+
+purrr::walk(vars_transf$variable, function(var) {
+  tops <- lista_tops[[var]]
+  if (is.null(tops) || nrow(tops) == 0) {
+    return(invisible())
+  }
+
+  n_cats_total <- df_res$n_cats_global[df_res$variable == var]
+  cob_top20 <- df_res$cob_top20_global[df_res$variable == var]
+
+  tops_long <- tops |>
+    tidyr::pivot_longer(c(prop_global, prop_reum),
+      names_to = "grupo", values_to = "pct"
+    ) |>
+    mutate(
+      grupo = ifelse(grupo == "prop_global", "Global", "Reumatológico"),
+      grupo = factor(grupo, levels = c("Global", "Reumatológico")),
+      valor = forcats::fct_reorder(valor, pct, .fun = max)
+    )
+
+  p <- ggplot(tops_long, aes(x = pct, y = valor, fill = grupo)) +
+    geom_col(position = "dodge", width = 0.65) +
+    scale_fill_manual(values = COLORES_GRUPO, name = "Grupo") +
+    scale_x_continuous(
+      labels = scales::percent_format(scale = 1),
+      expand = expansion(mult = c(0, 0.08))
+    ) +
+    labs(
+      title = glue("**{var}**"),
+      subtitle = glue("{n_cats_total} categorías | Top20 cubre {cob_top20}%"),
+      x = "Proporción (%)", y = NULL,
+      caption = glue("Top {meta$top_n_barras} de {n_cats_total} mostradas — **requiere agrupación jerárquica**")
+    ) +
+    tema_reporte() +
+    theme(plot.title = ggtext::element_markdown())
+
+  cat("\n\n")
+  print(htmltools::tagList(
+    plotly::ggplotly(p, tooltip = c("y", "x", "fill")) |>
+      plotly::layout(
+        legend = list(orientation = "h", y = -0.15),
+        margin = list(l = 180)
+      )
+  ))
+  cat("\n\n")
+})
+```
+
+## 🟣 Eliminar / Embedding — > 200 categorías {#eliminar}
+
+::: {.callout-caution}
+Con más de 200 categorías, el OHE es prácticamente inviable. Las opciones son: eliminar, usar **embeddings categóricos** (si se usa un modelo de ML que los soporte), o recodificar jerárquicamente (ej. comunas → regiones).
+:::
+
+```{r vars-eliminar}
+vars_elim <- df_res |>
+  filter(estrategia == "ELIMINAR_O_EMBEDDING") |>
+  arrange(desc(n_cats_global))
+
+if (nrow(vars_elim) == 0) {
+  cat("No hay variables en esta categoría.")
+} else {
+  vars_elim |>
+    select(
+      Variable = variable,
+      `Cats G.` = n_cats_global,
+      `Cats R.` = n_cats_reum,
+      `Top10 G%` = cob_top10_global,
+      `Top50 G%` = cob_top50_global,
+      `Moda` = moda_global
+    ) |>
+    reactable::reactable(
+      sortable = TRUE, striped = TRUE,
+      compact = TRUE, highlight = TRUE,
+      defaultSorted = list(`Cats G.` = "desc")
+    )
+}
+```
+
+---
+
+# Análisis de Cobertura Acumulada {#cobertura}
+
+¿Cuántas categorías necesitas conservar para cubrir el X% de los datos? Este análisis es clave para decidir el punto de corte del `fct_lump()`.
+
+```{r cobertura-heatmap}
+#| fig-height: 7
+
+df_cob <- df_res |>
+  filter(estrategia %in% c("AGRUPAR", "TRANSFORMAR", "ELIMINAR_O_EMBEDDING")) |>
+  select(variable, estrategia,
+    `Top 10` = cob_top10_global,
+    `Top 20` = cob_top20_global,
+    `Top 50` = cob_top50_global
+  ) |>
+  tidyr::pivot_longer(c(`Top 10`, `Top 20`, `Top 50`),
+    names_to = "top_k", values_to = "cobertura"
+  ) |>
+  mutate(variable = forcats::fct_reorder(variable, cobertura, .fun = max))
+
+p_heat <- ggplot(df_cob, aes(x = top_k, y = variable, fill = cobertura)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(
+    aes(label = ifelse(is.na(cobertura), "—",
+      paste0(cobertura, "%")
+    )),
+    size = 2.8, color = "white", fontface = "bold"
+  ) +
+  scale_fill_gradient2(
+    low = "#c0392b", mid = "#f39c12", high = "#27ae60",
+    midpoint = 75, na.value = "grey80",
+    name = "Cobertura (%)"
+  ) +
+  facet_wrap(~estrategia, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Cobertura acumulada del Top-K — variables que requieren decisión",
+    subtitle = "Verde = el Top-K ya cubre casi todo | Rojo = muchas categorías relevantes",
+    x = "Número de categorías conservadas", y = NULL
+  ) +
+  tema_reporte() +
+  theme(axis.text.y = element_text(size = 7))
+
+ggplotly(p_heat) |>
+  plotly::layout(height = max(400, nrow(df_cob) / 3 * 22))
+```
+
+---
+
+# Análisis Temporal — Estabilidad de Categorías {#temporal}
+
+¿Cambian las distribuciones entre años? Un cambio brusco puede indicar un cambio de codificación en la fuente, no un cambio clínico real.
+
+```{r temporal-setup}
+# Seleccionar las variables más "interesantes" para el análisis temporal:
+# priorizar las de estrategia AGRUPAR con buena completitud
+vars_temporales <- df_res |>
+  filter(
+    estrategia %in% c("AGRUPAR", "OHE_DIRECTO"),
+    pct_na_global < 50
+  ) |>
+  arrange(n_cats_global) |>
+  pull(variable)
+
+# Limitar a las primeras 20 para no sobrecargar el HTML
+vars_temporales <- head(vars_temporales, 20L)
+```
+
+```{r graficos-temporales}
+#| results: asis
+
+purrr::walk(vars_temporales, function(var) {
+  tops_var <- lista_tops[[var]]
+  if (is.null(tops_var)) {
+    return(invisible())
+  }
+
+  top_vals <- tops_var$valor
+
+  # Calcular distribución por año × grupo × categoría
+  df_var_temp <- tryCatch(
+    {
+      df_temp |>
+        dplyr::select(anio, grupo_paciente, valor = dplyr::all_of(var)) |>
+        dplyr::mutate(
+          valor = as.character(valor),
+          valor = dplyr::if_else(
+            is.na(valor) | valor %in% c("", "NA", "NULL"), NA_character_, valor
+          )
+        ) |>
+        dplyr::filter(!is.na(valor), valor %in% top_vals) |>
+        dplyr::group_by(anio, grupo_paciente, valor) |>
+        dplyr::summarise(n = dplyr::n(), .groups = "drop") |>
+        dplyr::group_by(anio, grupo_paciente) |>
+        dplyr::mutate(prop = 100 * n / sum(n)) |>
+        dplyr::ungroup() |>
+        dplyr::mutate(
+          valor = forcats::fct_reorder(valor, prop, .fun = sum, .desc = TRUE)
+        )
+    },
+    error = function(e) NULL
+  )
+
+  if (is.null(df_var_temp) || nrow(df_var_temp) == 0) {
+    return(invisible())
+  }
+
+  n_cats <- df_res$n_cats_global[df_res$variable == var]
+
+  p <- ggplot(
+    df_var_temp,
+    aes(x = factor(anio), y = prop, fill = valor)
+  ) +
+    geom_col(position = "stack", width = 0.8) +
+    scale_fill_viridis_d(
+      option = "turbo", name = "Categoría",
+      guide = guide_legend(ncol = 3, reverse = TRUE)
+    ) +
+    scale_y_continuous(
+      labels = scales::percent_format(scale = 1),
+      expand = expansion(mult = c(0, 0.02))
+    ) +
+    facet_wrap(~grupo_paciente, ncol = 2) +
+    labs(
+      title = glue("**{var}** — Evolución temporal"),
+      subtitle = glue("{n_cats} categorías únicas | Top {meta$top_n_barras} mostradas"),
+      x = "Año", y = "Proporción (%)"
+    ) +
+    tema_reporte() +
+    theme(
+      plot.title      = ggtext::element_markdown(),
+      legend.key.size = unit(0.32, "cm"),
+      legend.text     = element_text(size = 7)
+    )
+
+  cat("\n\n")
+  print(htmltools::tagList(
+    plotly::ggplotly(p) |>
+      plotly::layout(
+        height = 420,
+        legend = list(orientation = "h", y = -0.2)
+      )
+  ))
+  cat("\n\n")
+})
+```
+
+---
+
+# Alertas Automáticas {#alertas}
+
+```{r alertas}
+# ── Alerta 1: Alta cardinalidad con buena completitud (casos críticos) ────────
+alerta_critica <- df_res |>
+  filter(n_cats_global > meta$umbral_agrupar, pct_na_global < 70) |>
+  arrange(desc(n_cats_global))
+
+# ── Alerta 2: Cardinalidad muy diferente entre Global y Reumatológico ─────────
+alerta_discrepancia <- df_res |>
+  filter(!is.na(n_cats_reum)) |>
+  mutate(ratio_card = pmax(n_cats_global, 1) / pmax(n_cats_reum, 1)) |>
+  filter(ratio_card > 3 | ratio_card < 0.33) |>
+  arrange(desc(ratio_card))
+
+# ── Alerta 3: Top-10 cubre < 60% → distribución muy dispersa ─────────────────
+alerta_dispersa <- df_res |>
+  filter(!is.na(cob_top10_global), cob_top10_global < 60) |>
+  arrange(cob_top10_global)
+
+tagList(
+  tags$h3("⚠️ Variables de Alta Cardinalidad con Buena Completitud (prioridad alta)"),
+  if (nrow(alerta_critica) > 0) {
+    reactable::reactable(
+      alerta_critica |> select(
+        variable, n_cats_global, n_cats_reum,
+        pct_na_global, estrategia
+      ),
+      striped = TRUE, compact = TRUE, highlight = TRUE
+    )
+  } else {
+    tags$p("Ninguna.")
+  },
+  tags$hr(),
+  tags$h3("🔍 Variables con Cardinalidad Muy Diferente entre Grupos"),
+  tags$p(
+    "Una cardinalidad mucho menor en Reumatológicos puede indicar que algunos",
+    "códigos son raros en esta cohorte y pueden colapsarse."
+  ),
+  if (nrow(alerta_discrepancia) > 0) {
+    reactable::reactable(
+      alerta_discrepancia |>
+        select(
+          variable, n_cats_global, n_cats_reum,
+          ratio_card, estrategia
+        ) |>
+        mutate(ratio_card = round(ratio_card, 2)),
+      striped = TRUE, compact = TRUE, highlight = TRUE
+    )
+  } else {
+    tags$p("Ninguna.")
+  },
+  tags$hr(),
+  tags$h3("📊 Variables con Distribución Muy Dispersa (Top-10 < 60%)"),
+  tags$p(
+    "Estas variables son difíciles de agrupar: ninguna categoría domina.",
+    "Evaluar target encoding o eliminación."
+  ),
+  if (nrow(alerta_dispersa) > 0) {
+    reactable::reactable(
+      alerta_dispersa |>
+        select(
+          variable, n_cats_global, cob_top10_global,
+          cob_top20_global, cob_top50_global, estrategia
+        ),
+      striped = TRUE, compact = TRUE, highlight = TRUE
+    )
+  } else {
+    tags$p("Ninguna.")
+  }
+)
+```
+
+---
+
+# Notas Metodológicas {#notas}
+
+```{r notas-metadata}
+tags$div(
+  style = "background:#f8f9fa;border-left:4px solid #4E79A7;padding:16px;border-radius:4px;",
+  tags$h4("Metadatos de esta ejecución"),
+  tags$ul(
+    tags$li(glue("Fecha de generación: {format(meta$fecha_generacion, '%Y-%m-%d %H:%M:%S')}")),
+    tags$li(glue("Años analizados: {paste(meta$anios, collapse=', ')}")),
+    tags$li(glue("Total de filas: {fmt_n(meta$n_filas)}")),
+    tags$li(glue("Reumatológicos: {fmt_n(meta$n_reum)} ({round(100*meta$n_reum/meta$n_filas,1)}%)")),
+    tags$li(glue("Variables categóricas analizadas: {nrow(df_res)}")),
+    tags$li(glue("Variables numéricas analizadas: {length(datos_eda$cols_numericas)}")),
+    tags$li(glue("Columnas con alerta metodológica: {sum(!is.na(datos_eda$alertas_cols))}")),
+    tags$li(glue("Top-N barras: {meta$top_n_barras}")),
+    tags$li(glue("Umbral OHE directo: ≤{meta$umbral_ohe} categorías")),
+    tags$li(glue("Umbral agrupar: {meta$umbral_ohe+1}–{meta$umbral_agrupar} categorías"))
+  )
+)
+```
+
+::: {.callout-note collapse="true"}
+### Lógica de clasificación de tipo de variable
+
+Toda columna queda clasificada como **numérica** o **categórica** — sin exclusiones automáticas:
+
+- **Numérica** si R la lee como `numeric`/`integer`, o si ≥ 95 % de los valores no-NA son coercibles a `as.numeric()`.
+- **Categórica** en todos los demás casos.
+
+Las **alertas metodológicas** son independientes del tipo y pueden aparecer en cualquiera de las dos clases. Se emiten cuando el nombre de la columna coincide con patrones de identificador (`CIP_`, `ID_`, `RUT`) o texto libre (`NOMBRE`, `GLOSA`, `DESCRIPCION`…), o cuando la cardinalidad supera el 10 % del total de observaciones con más de 500 valores únicos. La decisión final sobre cada variable es del científico de datos.
+
+La clasificación se realizó sobre una **muestra aleatoria de 100.000 filas** para eficiencia computacional.
+:::
+
+::: {.callout-note collapse="true"}
+### Cómo interpretar las coberturas del Top-K
+
+`Top10 cob. G%` = proporción de registros *no-NA* del grupo Global que caen dentro de las 10 categorías más frecuentes. Un valor de 95% significa que las 10 categorías más comunes cubren el 95% de los casos y el resto (muchas categorías) representa solo el 5%.
+
+**Criterio práctico para OHE con agrupación:** si `Top20 cob. G% ≥ 90`, una estrategia `fct_lump(n=20)` + `"OTRO"` será suficiente para capturar casi toda la variabilidad.
+:::
+
+
+
+```{r explorador-columnas}
+#| echo: false
+#| results: asis
+
+# ── Parámetros ───────────────────────────────────────────────────────────────
+TOP_N_MOSTRAR <- 25L # filas visibles en la tabla por defecto
+MOSTRAR_REUM <- TRUE # incluir columna reumatológica
+
+# ── Datos ────────────────────────────────────────────────────────────────────
+# df_res ya viene del setup con la columna `alerta` garantizada
+lista_tops <- datos_eda$lista_top_cats
+
+cols_disponibles <- names(lista_tops)
+
+# ── Función: construye la tabla de una columna ───────────────────────────────
+tabla_col <- function(col_name, top_n = TOP_N_MOSTRAR) {
+  df <- lista_tops[[col_name]]
+  if (is.null(df) || nrow(df) == 0L) {
+    return(NULL)
+  }
+
+  meta_col <- df_res[df_res$variable == col_name, ]
+
+  df <- df |>
+    dplyr::slice_head(n = top_n) |>
+    dplyr::mutate(
+      prop_global = round(prop_global, 2),
+      prop_reum   = round(prop_reum, 2)
+    )
+
+  # Colores para la estrategia
+  est <- if (nrow(meta_col) > 0) meta_col$estrategia[1] else "—"
+  color_est <- dplyr::case_when(
+    est == "OHE_DIRECTO" ~ "#27ae60",
+    est == "AGRUPAR" ~ "#d68910",
+    est == "TRANSFORMAR" ~ "#c0392b",
+    est == "ELIMINAR_O_EMBEDDING" ~ "#6c3483",
+    TRUE ~ "#7f8c8d"
+  )
+  n_cats <- if (nrow(meta_col) > 0) meta_col$n_cats_global[1] else "?"
+  pct_na <- if (nrow(meta_col) > 0) meta_col$pct_na_global[1] else "?"
+  cob_top10 <- if (nrow(meta_col) > 0) meta_col$cob_top10_global[1] else "?"
+
+  # ── Cabecera informativa ──────────────────────────────────────────────────
+  header <- htmltools::tags$div(
+    style = "display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+             margin-bottom:10px; padding:10px 14px;
+             background:#f8f9fa; border-radius:6px;",
+    htmltools::tags$span(
+      style = glue::glue(
+        "background:{color_est}; color:white; padding:3px 10px;
+         border-radius:12px; font-size:0.78em; font-weight:bold;"
+      ),
+      est
+    ),
+    htmltools::tags$span(
+      style = "font-size:0.82em; color:#555;",
+      glue::glue(
+        "{n_cats} categorías únicas  |  {pct_na}% NA  |  Top-10 cubre {cob_top10}%"
+      )
+    )
+  )
+
+  # ── Tabla reactable ───────────────────────────────────────────────────────
+  cols_def <- list(
+    valor = reactable::colDef(
+      name = "Valor",
+      minWidth = 180,
+      style = list(fontWeight = "500")
+    ),
+    n_global = reactable::colDef(
+      name   = "N global",
+      format = reactable::colFormat(separators = TRUE),
+      align  = "right"
+    ),
+    prop_global = reactable::colDef(
+      name = "% global",
+      align = "right",
+      cell = reactable::JS("function(cellInfo) {
+        const v = cellInfo.value;
+        const w = Math.min(v * 2, 100);
+        return `<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>
+          <div style='width:70px;background:#e9ecef;border-radius:4px;height:8px;overflow:hidden'>
+            <div style='width:${w}%;background:#4E79A7;height:100%;border-radius:4px'></div>
+          </div>
+          <span>${v}%</span>
+        </div>`;
+      }"),
+      html = TRUE,
+      minWidth = 140
+    )
+  )
+
+  if (MOSTRAR_REUM) {
+    cols_def$n_reum <- reactable::colDef(
+      name   = "N reum.",
+      format = reactable::colFormat(separators = TRUE),
+      align  = "right"
+    )
+    cols_def$prop_reum <- reactable::colDef(
+      name = "% reum.",
+      align = "right",
+      cell = reactable::JS("function(cellInfo) {
+        const v = cellInfo.value;
+        const w = Math.min(v * 2, 100);
+        return `<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>
+          <div style='width:70px;background:#e9ecef;border-radius:4px;height:8px;overflow:hidden'>
+            <div style='width:${w}%;background:#F28E2B;height:100%;border-radius:4px'></div>
+          </div>
+          <span>${v}%</span>
+        </div>`;
+      }"),
+      html = TRUE,
+      minWidth = 140
+    )
+  }
+
+  tabla <- reactable::reactable(
+    df,
+    columns         = cols_def,
+    sortable        = TRUE,
+    compact         = TRUE,
+    striped         = TRUE,
+    highlight       = TRUE,
+    defaultPageSize = top_n,
+    showPagination  = FALSE,
+    defaultSorted   = list(prop_global = "desc")
+  )
+
+  htmltools::tagList(header, tabla)
+}
+
+# ── Renderizado: una sección por columna (con ancla) ─────────────────────────
+htmltools::tagList(
+  purrr::imap(cols_disponibles, function(col, i) {
+    contenido <- tabla_col(col)
+    if (is.null(contenido)) {
+      return(NULL)
+    }
+
+    htmltools::tags$div(
+      id = paste0("col-", gsub("[^A-Za-z0-9]", "_", col)),
+      style = "margin-bottom: 2.5rem;",
+      htmltools::tags$h4(
+        style = "font-size:1em; font-weight:600; margin-bottom:6px;
+                 color:#1B3A5C; border-bottom:2px solid #4E79A7;
+                 padding-bottom:4px;",
+        glue::glue("{i}. {col}")
+      ),
+      contenido
+    )
+  })
+)
+```
+
+---
+
+```{r tabla-clasificacion-columnas}
+#| echo: false
+#| results: asis
+
+# tipo_cols:    named vector "categorica" / "numerica" por columna
+# alertas_cols: named vector NA_character_ o mensaje de alerta por columna
+# Ambos vienen del setup — la alerta es ortogonal al tipo.
+# Nota: reactable, dplyr y htmltools ya fueron cargados en el chunk setup.
+
+df_clasificacion <- tibble::tibble(
+  variable = names(tipo_cols),
+  tipo     = unname(tipo_cols),
+  alerta   = unname(alertas_cols[names(tipo_cols)])
+) |>
+  mutate(
+    tipo_label = case_when(
+      tipo == "categorica" ~ "Categórica",
+      tipo == "numerica" ~ "Numérica",
+      TRUE ~ tipo # fallback por si hay valor inesperado
+    )
+  ) |>
+  # Columnas con alerta primero (útil para revisión rápida), luego por tipo y nombre
+  arrange(!is.na(alerta), tipo_label, variable)
+
+n_cat <- sum(df_clasificacion$tipo == "categorica")
+n_num <- sum(df_clasificacion$tipo == "numerica")
+n_ale <- sum(!is.na(df_clasificacion$alerta))
+
+tagList(
+  # ── Nota metodológica ────────────────────────────────────────────────────
+  htmltools::div(
+    style = "background:#fff3cd;border-left:4px solid #f39c12;padding:12px 16px;
+             border-radius:4px;margin-bottom:16px;font-size:0.88em;",
+    htmltools::tags$strong("Nota: "),
+    "Todas las columnas están clasificadas como categóricas o numéricas. ",
+    "Las alertas (🔔) son avisos metodológicos independientes del tipo: ",
+    "una numérica puede ser un ID enmascarado igual que una categórica. ",
+    "La decisión de usar, recodificar o descartar cada variable es del científico de datos."
+  ),
+
+  # ── Tarjetas resumen ──────────────────────────────────────────────────────
+  tags$div(
+    style = "display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;",
+    tags$div(
+      style = "background:#4E79A7;color:white;border-radius:8px;padding:12px 20px;",
+      tags$div(style = "font-size:1.6em;font-weight:bold;", n_cat),
+      tags$div(style = "font-size:0.82em;opacity:0.85;", "Categóricas")
+    ),
+    tags$div(
+      style = "background:#27ae60;color:white;border-radius:8px;padding:12px 20px;",
+      tags$div(style = "font-size:1.6em;font-weight:bold;", n_num),
+      tags$div(style = "font-size:0.82em;opacity:0.85;", "Numéricas")
+    ),
+    tags$div(
+      style = "background:#f39c12;color:white;border-radius:8px;padding:12px 20px;",
+      tags$div(style = "font-size:1.6em;font-weight:bold;", n_ale),
+      tags$div(style = "font-size:0.82em;opacity:0.85;", "Con alerta metodológica")
+    ),
+    tags$div(
+      style = "background:#1B3A5C;color:white;border-radius:8px;padding:12px 20px;",
+      tags$div(style = "font-size:1.6em;font-weight:bold;", n_cat + n_num),
+      tags$div(style = "font-size:0.82em;opacity:0.85;", "Total columnas analizadas")
+    )
+  ),
+
+  # ── Tabla ─────────────────────────────────────────────────────────────────
+  reactable(
+    df_clasificacion |> select(variable, tipo_label, alerta),
+    filterable = TRUE,
+    searchable = TRUE,
+    sortable = TRUE,
+    striped = TRUE,
+    compact = TRUE,
+    highlight = TRUE,
+    wrap = FALSE,
+    defaultPageSize = 20,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions = c(20, 50, 100, 200),
+    defaultColDef = reactable::colDef(minWidth = 110),
+    columns = list(
+      variable = reactable::colDef(
+        name     = "Variable",
+        minWidth = 200,
+        sticky   = "left"
+      ),
+      tipo_label = reactable::colDef(
+        name = "Tipo",
+        minWidth = 130,
+        filterable = TRUE,
+        cell = function(value) {
+          color <- if (value == "Categórica") {
+            "#4E79A7"
+          } else if (value == "Numérica") {
+            "#27ae60"
+          } else {
+            "#7f8c8d"
+          }
+          htmltools::tags$span(
+            style = glue::glue(
+              "background:{color};color:white;padding:2px 10px;",
+              "border-radius:12px;font-size:0.78em;font-weight:bold;"
+            ),
+            value
+          )
+        }
+      ),
+      alerta = reactable::colDef(
+        name = "Alerta metodológica",
+        minWidth = 300,
+        cell = function(value) {
+          if (is.na(value)) {
+            return(htmltools::tags$span(style = "color:#bdc3c7;font-size:0.85em;", "—"))
+          }
+          htmltools::tags$span(
+            style = "font-size:0.82em;color:#856404;",
+            paste0("🔔 ", value)
+          )
+        }
+      )
+    )
+  )
+)
+```
+
+```{r eda-numericas}
+#| echo: false
+#| results: asis
+#| warning: false
+#| message: false
+#| fig-width: 11
+#| fig-height: 5
+# Nota: dplyr, ggplot2, plotly, htmltools, glue, purrr y tidyr ya fueron
+# cargados en el chunk setup.
+
+df_num <- datos_eda$df_numericas
+cols_num <- datos_eda$cols_numericas
+meta <- datos_eda$meta
+
+# ==============================================================================
+# A. PRE-CÁLCULO — todo en un solo paso antes de renderizar
+# ==============================================================================
+
+# ── Muestra fija para violines (máx 30k filas — suficiente para forma visual) ─
+set.seed(42L)
+n_muestra_plot <- min(30000L, nrow(df_num))
+idx_muestra <- sample(nrow(df_num), n_muestra_plot)
+df_muestra <- df_num[idx_muestra, ]
+
+# ── Estadísticas descriptivas ─────────────────────────────────────────────────
+calcular_stats <- function(vals, col, grupo_label) {
+  # pct_na se calcula ANTES de filtrar NA/infinitos, sobre el vector original recibido.
+  # Esto evita referenciar df_num desde dentro de la función (anti-patrón de closure).
+  pct_na_local <- round(100 * sum(is.na(vals)) / max(length(vals), 1L), 1)
+
+  vals <- as.numeric(vals)
+  vals <- vals[!is.na(vals) & is.finite(vals)]
+  if (length(vals) == 0L) {
+    return(NULL)
+  }
+
+  q <- quantile(vals, probs = c(.01, .05, .25, .5, .75, .95, .99))
+  iqr <- q[4] - q[2]
+  n_out <- sum(vals < (q[2] - 1.5 * iqr) | vals > (q[4] + 1.5 * iqr))
+  tbl <- sort(table(vals), decreasing = TRUE)
+
+  tibble::tibble(
+    variable = col,
+    grupo = grupo_label,
+    n = length(vals),
+    pct_na = pct_na_local,
+    media = round(mean(vals), 2),
+    mediana = round(median(vals), 2),
+    moda = as.numeric(names(tbl)[1]),
+    de = round(sd(vals), 2),
+    p01 = round(q[1], 2),
+    p05 = round(q[2], 2),
+    q1 = round(q[3], 2),
+    q3 = round(q[4], 2),
+    p95 = round(q[5], 2),
+    p99 = round(q[6], 2),
+    n_outliers = n_out,
+    pct_out = round(100 * n_out / length(vals), 1)
+  )
+}
+
+# Calcular stats para Global y Reumatológico de todas las columnas de una vez
+df_stats_all <- purrr::map_dfr(cols_num, function(col) {
+  dplyr::bind_rows(
+    calcular_stats(df_num[[col]], col, "Global"),
+    calcular_stats(df_num[[col]][df_num$grupo_paciente != "Reumatológico"], col, "Global sin reum."),
+    calcular_stats(df_num[[col]][df_num$grupo_paciente == "Reumatológico"], col, "Reumatológico")
+  )
+})
+
+# Tabla resumen solo para Global (una fila por variable)
+df_resumen <- df_stats_all |>
+  dplyr::filter(grupo == "Global") |>
+  dplyr::select(-grupo)
+
+# ── Datos de plot pre-procesados: P1–P99 aplicado sobre la muestra ────────────
+datos_plot <- purrr::map(cols_num, function(col) {
+  df_plot <- df_muestra |>
+    dplyr::select(grupo_paciente, valor = dplyr::all_of(col)) |>
+    dplyr::mutate(valor = as.numeric(valor)) |>
+    dplyr::filter(!is.na(valor), is.finite(valor))
+
+  if (nrow(df_plot) == 0L) {
+    return(NULL)
+  }
+
+  p01 <- quantile(df_plot$valor, .01)
+  p99 <- quantile(df_plot$valor, .99)
+  dplyr::filter(df_plot, valor >= p01, valor <= p99)
+}) |> setNames(cols_num)
+
+# ==============================================================================
+# B. FUNCIÓN DE GRÁFICO — recibe datos ya preparados
+# ==============================================================================
+
+hacer_boxplot <- function(col, df_plot) {
+  if (is.null(df_plot) || nrow(df_plot) == 0L) {
+    return(NULL)
+  }
+
+  p <- ggplot(
+    df_plot,
+    aes(
+      x = grupo_paciente, y = valor,
+      fill = grupo_paciente, color = grupo_paciente
+    )
+  ) +
+    geom_violin(
+      alpha = .20, linewidth = .3, show.legend = FALSE,
+      scale = "width"
+    ) +
+    geom_boxplot(
+      width = .22, alpha = .85, outlier.size = .6,
+      outlier.alpha = .25, show.legend = FALSE,
+      position = position_dodge2(preserve = "single")
+    ) +
+    stat_summary(
+      fun = mean, geom = "point", shape = 18,
+      size = 3, color = "white", show.legend = FALSE
+    ) +
+    scale_fill_manual(values = c(
+      "Global" = "#4E79A7",
+      "Reumatológico" = "#F28E2B"
+    )) +
+    scale_color_manual(values = c(
+      "Global" = "#4E79A7",
+      "Reumatológico" = "#F28E2B"
+    )) +
+    labs(
+      subtitle = glue("Rango visualizado: P1–P99  |  n muestra: {scales::comma(nrow(df_plot))}  |  Rombo = media"),
+      x = NULL, y = col
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      plot.subtitle    = element_text(color = "grey50", size = 9),
+      panel.grid.minor = element_blank()
+    )
+
+  plotly::ggplotly(p, tooltip = c("y", "x"), height = 350)
+}
+
+# ==============================================================================
+# C. RENDER
+# ==============================================================================
+
+tagList(
+  # ── Tabla maestra ───────────────────────────────────────────────────────────
+  tags$h3("Tabla resumen — variables numéricas"),
+  tags$p(
+    style = "font-size:.85em;color:#555;margin-bottom:10px;",
+    glue("{nrow(df_resumen)} variables numéricas | estadísticas sobre datos completos")
+  ),
+  reactable::reactable(
+    df_resumen,
+    searchable = TRUE, filterable = TRUE,
+    sortable = TRUE, striped = TRUE,
+    compact = TRUE, highlight = TRUE,
+    defaultPageSize = 20,
+    showPageSizeOptions = TRUE,
+    pageSizeOptions = c(20, 50),
+    defaultSorted = list(pct_out = "desc"),
+    wrap = FALSE,
+    defaultColDef = reactable::colDef(minWidth = 90),
+    columns = list(
+      variable = reactable::colDef(minWidth = 190, sticky = "left"),
+      pct_na = reactable::colDef(
+        name = "% NA",
+        cell = reactable::JS("function(ci) {
+          const v = ci.value;
+          const c = v > 30 ? '#c0392b' : v > 10 ? '#d68910' : '#27ae60';
+          return `<span style='color:${c};font-weight:bold'>${v}%</span>`;
+        }"), html = TRUE
+      ),
+      n_outliers = reactable::colDef(name = "N outliers"),
+      pct_out = reactable::colDef(
+        name = "% outliers",
+        cell = reactable::JS("function(ci) {
+          const v = ci.value;
+          const c = v > 10 ? '#c0392b' : v > 3 ? '#d68910' : '#27ae60';
+          return `<span style='color:${c};font-weight:bold'>${v}%</span>`;
+        }"), html = TRUE
+      )
+    )
+  ),
+  tags$hr(style = "margin: 2rem 0;"),
+
+  # ── Boxplots ────────────────────────────────────────────────────────────────
+  tags$h3("Distribución por variable — Global vs Reumatológico"),
+  tags$p(
+    style = "font-size:.85em;color:#555;margin-bottom:1.5rem;",
+    glue(
+      "Violín + boxplot sobre muestra de {scales::comma(n_muestra_plot)} filas. ",
+      "Línea central = mediana, rombo blanco = media. ",
+      "Outliers Tukey (×1.5 IQR) dentro del rango P1–P99."
+    )
+  ),
+  purrr::map(cols_num, function(col) {
+    bp <- hacer_boxplot(col, datos_plot[[col]])
+    if (is.null(bp)) {
+      return(NULL)
+    }
+
+    sg <- df_stats_all[df_stats_all$variable == col &
+      df_stats_all$grupo == "Global", ]
+    sr <- df_stats_all[df_stats_all$variable == col &
+      df_stats_all$grupo == "Reumatológico", ]
+
+    meta_txt <- glue(
+      "Global  media:{sg$media}  med:{sg$mediana}  ",
+      "IQR:[{sg$q1}, {sg$q3}]  outliers:{sg$pct_out}%  NA:{sg$pct_na}%",
+      "   ‖   ",
+      "Reum.  media:{sr$media}  med:{sr$mediana}  ",
+      "IQR:[{sr$q1}, {sr$q3}]  outliers:{sr$pct_out}%"
+    )
+
+    tags$div(
+      style = "margin-bottom: 2.5rem;",
+      tags$p(
+        style = "font-size:.75em;color:#555;font-family:monospace;
+                 background:#f8f9fa;border-left:3px solid #4E79A7;
+                 padding:5px 10px;border-radius:0 4px 4px 0;margin-bottom:6px;",
+        tags$strong(col), " — ", meta_txt
+      ),
+      htmltools::tagList(bp)
+    )
+  })
+)
+```
+
+---
+
+# Exportación para Análisis Externo {#exportacion}
+
+::: {.callout-tip}
+Estos archivos están pensados para compartirlos con una IA o revisarlos en Excel/Python
+y decidir qué hacer con cada variable **antes** de entrar al Módulo 4.
+El archivo de resumen tiene una fila por variable; el de categorías críticas muestra
+los valores más frecuentes de cada variable que requiere decisión.
+:::
+
+```{r exportar-csv}
+#| echo: false
+#| results: asis
+
+# ── Directorio de salida ───────────────────────────────────────────────────────
+dir_out <- "output"
+if (!dir.exists(dir_out)) dir.create(dir_out, recursive = TRUE)
+
+# Orden de criticidad para exportación (más crítico primero)
+orden_estrategia <- c(
+  "ELIMINAR_O_EMBEDDING", "TRANSFORMAR", "AGRUPAR", "OHE_DIRECTO", "SIN_DATOS"
+)
+
+# ==============================================================================
+# ARCHIVO 1: resumen_cardinalidad.csv
+# Una fila por variable. Métricas de Global y Reumatológico ordenadas por
+# criticidad. Ideal para dar contexto rápido a una IA.
+# ==============================================================================
+df_export <- df_res |>
+  dplyr::mutate(
+    estrategia      = factor(estrategia, levels = orden_estrategia),
+    estrategia_reum = factor(estrategia_reum, levels = orden_estrategia)
+  ) |>
+  dplyr::arrange(estrategia, dplyr::desc(n_cats_global)) |>
+  dplyr::select(
+    variable,
+    estrategia_global = estrategia,
+    estrategia_reum,
+    n_cats_global,
+    n_cats_reum,
+    pct_na_global,
+    pct_na_reum,
+    cob_top10_global,
+    cob_top20_global,
+    cob_top50_global,
+    cob_top10_reum,
+    cob_top20_reum,
+    cob_top50_reum,
+    moda_global,
+    moda_reum,
+    alerta
+  )
+
+ruta_resumen <- file.path(dir_out, "resumen_cardinalidad.csv")
+# write_excel_csv añade BOM UTF-8: Excel en Windows lo abre correctamente con tildes
+readr::write_excel_csv(df_export, ruta_resumen, na = "")
+
+# ==============================================================================
+# ARCHIVO 2: top_categorias_criticas.csv
+# Solo variables AGRUPAR / TRANSFORMAR / ELIMINAR_O_EMBEDDING.
+# Una fila por variable × categoría (top-N más frecuentes).
+# ==============================================================================
+vars_criticas <- df_res |>
+  dplyr::filter(
+    estrategia %in% c("ELIMINAR_O_EMBEDDING", "TRANSFORMAR", "AGRUPAR")
+  ) |>
+  dplyr::mutate(estrategia = factor(estrategia, levels = orden_estrategia)) |>
+  dplyr::arrange(estrategia, dplyr::desc(n_cats_global)) |>
+  dplyr::pull(variable)
+
+df_top_criticas <- purrr::map_dfr(vars_criticas, function(var) {
+  tops <- lista_tops[[var]]
+  if (is.null(tops) || nrow(tops) == 0L) {
+    return(NULL)
+  }
+
+  meta_var <- df_res[df_res$variable == var, ]
+
+  tops |>
+    dplyr::slice_head(n = meta$top_n_barras) |>
+    dplyr::mutate(
+      variable          = var,
+      estrategia_global = meta_var$estrategia[1L],
+      estrategia_reum   = meta_var$estrategia_reum[1L],
+      n_cats_global     = meta_var$n_cats_global[1L],
+      n_cats_reum       = meta_var$n_cats_reum[1L],
+      pct_na_global     = meta_var$pct_na_global[1L],
+      pct_na_reum       = meta_var$pct_na_reum[1L],
+      .before           = 1L
+    )
+})
+
+ruta_top <- file.path(dir_out, "top_categorias_criticas.csv")
+readr::write_excel_csv(df_top_criticas, ruta_top, na = "")
+
+# ==============================================================================
+# ARCHIVO 3: resumen_numericas.csv
+# Una fila por variable numérica con estadísticos descriptivos para ambos grupos.
+# df_stats_all se construye en el chunk eda-numericas (inmediatamente antes).
+# ==============================================================================
+df_stats_export <- df_stats_all |>
+  dplyr::filter(grupo == "Global") |>
+  dplyr::select(-grupo) |>
+  dplyr::rename(
+    pct_na_global     = pct_na,
+    media_global      = media,
+    mediana_global    = mediana,
+    moda_global       = moda,
+    de_global         = de,
+    p01_global        = p01, p05_global = p05,
+    q1_global         = q1,  q3_global  = q3,
+    p95_global        = p95, p99_global = p99,
+    n_outliers_global = n_outliers,
+    pct_out_global    = pct_out
+  ) |>
+  dplyr::left_join(
+    df_stats_all |>
+      dplyr::filter(grupo == "Reumatológico") |>
+      dplyr::select(variable,
+        n_reum = n,
+        pct_na_reum = pct_na, # <-- añadido: % NA en subgrupo reumatológico
+        media_reum = media,
+        mediana_reum = mediana,
+        de_reum = de,
+        q1_reum = q1, q3_reum = q3,
+        pct_out_reum = pct_out
+      ),
+    by = "variable"
+  ) |>
+  dplyr::arrange(dplyr::desc(pct_out_global))
+
+ruta_num <- file.path(dir_out, "resumen_numericas.csv")
+readr::write_excel_csv(df_stats_export, ruta_num, na = "")
+
+# ── Resumen de lo generado ────────────────────────────────────────────────────
+htmltools::tagList(
+  htmltools::div(
+    style = "background:#f0f4f8; border-left:4px solid #4E79A7;
+             padding:16px 20px; border-radius:4px; font-family:monospace;
+             font-size:0.85em; line-height:1.8;",
+    htmltools::tags$strong("Archivos generados en output/:"),
+    htmltools::tags$br(),
+    htmltools::tags$span(style = "color:#27ae60;", "✔ "),
+    htmltools::tags$code("resumen_cardinalidad.csv"),
+    htmltools::tags$span(
+      style = "color:#555;",
+      glue::glue(" — {nrow(df_export)} variables × {ncol(df_export)} columnas")
+    ),
+    htmltools::tags$br(),
+    htmltools::tags$span(style = "color:#27ae60;", "✔ "),
+    htmltools::tags$code("top_categorias_criticas.csv"),
+    htmltools::tags$span(
+      style = "color:#555;",
+      glue::glue(
+        " — {length(vars_criticas)} variables críticas | ",
+        "{nrow(df_top_criticas)} filas (top-{meta$top_n_barras} por variable)"
+      )
+    ),
+    htmltools::tags$br(),
+    htmltools::tags$span(style = "color:#27ae60;", "✔ "),
+    htmltools::tags$code("resumen_numericas.csv"),
+    htmltools::tags$span(
+      style = "color:#555;",
+      glue::glue(" — {nrow(df_stats_export)} variables numéricas")
+    ),
+    htmltools::tags$br(), htmltools::tags$br(),
+    htmltools::tags$span(
+      style = "color:#7f8c8d; font-size:0.9em;",
+      "Encoding: UTF-8 con BOM (compatible con Excel en Windows). ",
+      "Comparte resumen_cardinalidad.csv + top_categorias_criticas.csv ",
+      "para análisis de variables críticas."
+    )
+  )
+)
+```

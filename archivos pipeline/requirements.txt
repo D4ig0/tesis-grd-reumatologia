@@ -1,0 +1,19 @@
+# Dependencias Python del pipeline (versiones fijadas desde el entorno del autor).
+# Semilla global: SEED = 42 (07_modelado_split.py, 08_modelado.py).
+# Instalar con:  pip install -r requirements.txt
+
+# Núcleo del pipeline (preprocesamiento, modelado, evaluación)
+numpy==2.3.5
+pandas==2.3.3
+pyarrow==25.0.0
+scipy==1.18.0
+scikit-learn==1.9.0
+xgboost==3.4.0
+joblib==1.5.3
+
+# Interpretabilidad (11_shap*.py, 13_shap_resumen*.py, verificar_shap*.py)
+shap==0.52.0
+
+# Figuras del anexo de curvas (12_curvas.py).
+# OJO: no estaba en tu entorno; instálalo con  pip install matplotlib
+matplotlib

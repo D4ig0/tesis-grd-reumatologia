@@ -1,0 +1,584 @@
+---
+title: "MÓDULO 03: Frecuencia de Patologías Reumatológicas por Año"
+subtitle: "Caracterización Reumatológica GRD Chile 2019–2024"
+author: "Diego Oliva López | USACH"
+date: today
+lang: es
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    toc-location: left
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "Ver código"
+    embed-resources: true
+    fig-width: 13
+    fig-height: 7
+    fig-dpi: 150
+    smooth-scroll: true
+    page-layout: full
+
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: true
+  cache-path: "_cache/eda_columnas/"
+
+knitr:
+  opts_chunk:
+    comment: ""
+    out.width: "100%"
+---
+
+```{r setup}
+#| cache: false
+
+paquetes <- c(
+  "arrow", "dplyr", "tidyr", "ggplot2", "purrr",
+  "scales", "stringr", "reactable", "htmltools",
+  "glue", "lubridate", "forcats"
+)
+
+faltantes <- paquetes[!sapply(paquetes, requireNamespace, quietly = TRUE)]
+if (length(faltantes) > 0) {
+  install.packages(faltantes, repos = "https://cloud.r-project.org")
+}
+
+invisible(lapply(paquetes, library, character.only = TRUE))
+
+PALETA_ANIOS <- c(
+  "2019" = "#2166AC", "2020" = "#4DAC26", "2021" = "#D01C8B",
+  "2022" = "#F1A340", "2023" = "#998EC3", "2024" = "#E08214"
+)
+
+tema_base <- theme_minimal(base_size = 11) +
+  theme(
+    plot.title        = element_text(face = "bold", size = 12),
+    plot.subtitle     = element_text(size = 9, color = "gray40"),
+    panel.grid.minor  = element_blank(),
+    strip.text        = element_text(face = "bold")
+  )
+
+fmt_n <- function(x) format(round(x), big.mark = ".", decimal.mark = ",")
+
+# ── Códigos CIE-10 oficiales del proyecto ────────────────────────────────────
+# Se sourcean desde _codigos_cie.R — el mismo archivo usado por
+# _prep_cardinalidad.R para definir grupo_paciente = "Reumatológico".
+# Esto garantiza que la clasificación de patologías aquí es IDÉNTICA a la
+# del pipeline de datos, sin discrepancias por prefijos aproximados.
+source("_codigos_cie.R") # define: CODIGOS_REUMATICOS, TODOS_LOS_CODIGOS
+
+# ── Nombres de visualización y grupos para cada enfermedad ───────────────────
+MAPA_DISPLAY <- tibble::tribble(
+  ~clave, ~patologia, ~grupo_mayor,
+  "artritis_reumatoide", "Artritis Reumatoide", "Artritis inflamatoria",
+  "artritis_psoriasica", "Artritis Psoriásica", "Artritis inflamatoria",
+  "artritis_idiopatica_juvenil", "Artritis Idiopática Juvenil", "Artritis inflamatoria",
+  "lupus_eritematoso_sistemico", "Lupus Eritematoso Sistémico", "Tejido conectivo",
+  "esclerodermia", "Esclerodermia / Esclerosis Sistémica", "Tejido conectivo",
+  "sindrome_de_sjogren", "Síndrome de Sjögren", "Tejido conectivo",
+  "miositis", "Miositis / Dermatopolimiositis", "Tejido conectivo",
+  "vasculitis_sistemicas", "Vasculitis Sistémicas", "Vasculitis",
+  "vasculitis_cutaneas", "Vasculitis Cutáneas", "Vasculitis",
+  "espondilitis_anquilosante", "Espondilitis Anquilosante", "Espondiloartropatías",
+  "gota", "Gota", "Metabólicas / Cristales",
+  "artrosis_osteoartritis", "Artrosis / Osteoartritis", "Degenerativas",
+  "fibromialgia", "Fibromialgia", "Dolor crónico",
+  "uveitis", "Uveítis", "Manifestaciones oftalmológicas",
+  "sindrome_de_raynaud", "Síndrome de Raynaud", "Vascular periférico"
+)
+
+# ── Tabla de lookup: CÓDIGO_UPPER → clave_enfermedad (O(1) por código) ───────
+# Se construye invirtiendo CODIGOS_REUMATICOS para búsqueda vectorizada rápida.
+LOOKUP_ENFERMEDAD <- local({
+  entradas <- unlist(lapply(names(CODIGOS_REUMATICOS), function(nm) {
+    setNames(
+      rep(nm, length(CODIGOS_REUMATICOS[[nm]])),
+      toupper(CODIGOS_REUMATICOS[[nm]])
+    )
+  }))
+  # Si un código aparece en varias enfermedades, gana el primero (orden del archivo)
+  entradas[!duplicated(names(entradas))]
+})
+
+# Función: vectorizada, retorna clave_enfermedad o NA
+clasificar_vectorizado <- function(codigos_vec) {
+  cod <- toupper(stringr::str_trim(as.character(codigos_vec)))
+  cod[cod == "NA" | cod == "" | cod == "NULL"] <- NA_character_
+  LOOKUP_ENFERMEDAD[cod] # NA si el código no está en el lookup
+}
+```
+
+```{r cargar-datos}
+#| cache: false
+
+RUTA_CONSOLIDADO <- "output/datos_consolidados_etiquetados.parquet"
+if (!file.exists(RUTA_CONSOLIDADO)) {
+  stop(
+    "No se encontró ", RUTA_CONSOLIDADO,
+    ". Ejecuta primero 02_eda_cardinalidad.qmd para generarlo."
+  )
+}
+
+df <- arrow::read_parquet(RUTA_CONSOLIDADO)
+df$anio <- as.character(df$anio)
+
+anios <- sort(unique(df$anio))
+n_total <- nrow(df)
+n_reum <- sum(df$grupo_paciente == "Reumatológico", na.rm = TRUE)
+pct_reum <- round(100 * n_reum / n_total, 1)
+
+# Solo pacientes reumatológicos para el análisis de patologías
+df_reum <- df |> dplyr::filter(grupo_paciente == "Reumatológico")
+
+# Columnas de diagnóstico presentes en el dataset
+COLS_DIAG <- intersect(paste0("DIAGNOSTICO", 1:35), names(df))
+```
+
+# Resumen General {#resumen}
+
+```{r dashboard}
+#| cache: false
+#| results: asis
+
+tagList(tags$div(
+  style = "display:flex;gap:14px;flex-wrap:wrap;margin-bottom:1.5rem;",
+  purrr::map(list(
+    list(v = fmt_n(n_total), l = "Total registros", c = "#1B3A5C"),
+    list(v = fmt_n(n_reum), l = "Pacientes reumatológicos", c = "#4E79A7"),
+    list(v = paste0(pct_reum, "%"), l = "% reumatológico", c = "#F28E2B"),
+    list(v = length(anios), l = "Años cubiertos", c = "#27ae60"),
+    list(v = nrow(MAPA_DISPLAY), l = "Patologías en el mapa", c = "#6c3483")
+  ), function(d) {
+    tags$div(
+      style = glue("background:{d$c};color:white;border-radius:8px;
+                    padding:14px 22px;min-width:160px;"),
+      tags$div(style = "font-size:1.8em;font-weight:bold;", d$v),
+      tags$div(style = "font-size:0.82em;opacity:0.85;", d$l)
+    )
+  })
+))
+```
+
+---
+
+# Frecuencia de Patologías Reumatológicas por Año {#patologias}
+
+::: {.callout-important}
+**Criterio de inclusión para el modelado:** una patología debe aparecer en los
+**6 años** del dataset (2019–2024) con un volumen mínimo razonable. Patologías
+ausentes en algún año o con frecuencia muy baja introducen inestabilidad en el
+modelo y no son caracterizables con la serie disponible.
+:::
+
+```{r clasificar-patologias}
+#| cache: true
+#| cache.lazy: false
+
+# Clasificación vectorizada: para cada paciente reumatológico, recorre
+# DIAGNOSTICO1 → DIAGNOSTICO35 y asigna la primera clave_enfermedad que
+# coincida exactamente con algún código en CODIGOS_REUMATICOS.
+# Usa el lookup O(1) construido en setup → mucho más rápido que apply+loop.
+
+# Paso 1: matriz de claves por columna diagnóstica
+mat_claves <- lapply(COLS_DIAG, function(col) {
+  clasificar_vectorizado(df_reum[[col]])
+})
+names(mat_claves) <- COLS_DIAG
+
+# Paso 2: patología principal = primera clave no-NA en orden DIAG1→DIAG35
+clave_principal <- rep(NA_character_, nrow(df_reum))
+for (col in COLS_DIAG) {
+  sin_asignar <- is.na(clave_principal)
+  tiene_match <- !is.na(mat_claves[[col]])
+  clave_principal[sin_asignar & tiene_match] <-
+    mat_claves[[col]][sin_asignar & tiene_match]
+}
+clave_principal[is.na(clave_principal)] <- "sin_clasificar"
+
+df_reum$clave_principal <- clave_principal
+
+# Paso 3: unir con display names y grupos
+df_reum <- df_reum |>
+  dplyr::select(-dplyr::any_of(c("patologia_principal", "grupo_mayor"))) |> # <- añadir
+  dplyr::left_join(
+    MAPA_DISPLAY |>
+      dplyr::select(
+        clave = clave, patologia_principal = patologia,
+        grupo_mayor
+      ),
+    by = c("clave_principal" = "clave")
+  ) |>
+  dplyr::mutate(
+    patologia_principal = dplyr::coalesce(
+      patologia_principal,
+      dplyr::if_else(clave_principal == "sin_clasificar",
+        "Sin clasificar (reum.)",
+        stringr::str_to_title(
+          stringr::str_replace_all(clave_principal, "_", " ")
+        )
+      )
+    ),
+    grupo_mayor = dplyr::coalesce(grupo_mayor, "Otro / Sin clasificar")
+  )
+
+# Paso 4: tabla de frecuencias por patología × año
+freq_pat_anio <- df_reum |>
+  dplyr::count(anio, patologia_principal, grupo_mayor, name = "n")
+
+# Paso 5: tabla ancha para análisis de cobertura
+freq_wide <- freq_pat_anio |>
+  tidyr::pivot_wider(
+    names_from  = anio,
+    values_from = n,
+    values_fill = 0L
+  ) |>
+  dplyr::mutate(
+    total       = rowSums(dplyr::across(dplyr::all_of(anios)), na.rm = TRUE),
+    n_anios_con = rowSums(dplyr::across(dplyr::all_of(anios)) > 0, na.rm = TRUE),
+    cubre_todo  = (n_anios_con == length(anios))
+  ) |>
+  dplyr::arrange(desc(total))
+```
+
+## Heatmap de frecuencia: patología × año
+
+```{r heatmap-patologias}
+#| fig-height: 9
+
+freq_pat_anio |>
+  dplyr::mutate(
+    patologia_principal = forcats::fct_reorder(
+      patologia_principal,
+      n,
+      .fun = sum, .desc = FALSE
+    )
+  ) |>
+  ggplot(aes(x = anio, y = patologia_principal, fill = n)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = ifelse(n > 0, fmt_n(n), "0")),
+    size = 2.7, color = "white", fontface = "bold"
+  ) +
+  scale_fill_gradientn(
+    colours = c("#f7fbff", "#6baed6", "#2171b5", "#08306b"),
+    name    = "N casos",
+    labels  = scales::label_comma()
+  ) +
+  facet_grid(grupo_mayor ~ ., scales = "free_y", space = "free_y") +
+  labs(
+    title = "Frecuencia de patologías reumatológicas por año",
+    subtitle = "Diagnóstico principal de cada paciente reumatológico | 0 = sin casos ese año",
+    x = "Año", y = NULL
+  ) +
+  tema_base +
+  theme(
+    strip.text.y     = element_text(angle = 0, size = 8),
+    axis.text.y      = element_text(size = 8),
+    legend.position  = "right"
+  )
+```
+
+## Evolución anual por patología (líneas)
+
+```{r lineas-patologias}
+#| fig-height: 8
+
+# Excluir "Sin clasificar" para mayor claridad visual
+freq_pat_anio |>
+  dplyr::filter(patologia_principal != "Sin clasificar (reum.)") |>
+  dplyr::mutate(
+    patologia_principal = forcats::fct_reorder(
+      patologia_principal, n,
+      .fun = sum, .desc = TRUE
+    )
+  ) |>
+  ggplot(aes(
+    x = anio, y = n,
+    color = grupo_mayor, group = patologia_principal
+  )) +
+  geom_line(linewidth = 0.9, alpha = 0.85) +
+  geom_point(size = 2.5) +
+  geom_text(aes(label = fmt_n(n)),
+    vjust = -0.7, size = 2.3, show.legend = FALSE
+  ) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  scale_color_brewer(palette = "Set1", name = "Grupo") +
+  facet_wrap(~patologia_principal, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Evolución anual de cada patología reumatológica",
+    subtitle = "Escala libre por panel. Cada panel = una patología.",
+    x = "Año", y = "N casos"
+  ) +
+  tema_base +
+  theme(
+    strip.text = element_text(size = 7.5),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+    axis.text.y = element_text(size = 7),
+    legend.position = "bottom"
+  )
+```
+
+## Tabla de cobertura: ¿aparece en los 6 años?
+
+```{r tabla-cobertura}
+reactable::reactable(
+  freq_wide |>
+    dplyr::select(
+      grupo_mayor, patologia_principal, dplyr::all_of(anios),
+      total, n_anios_con, cubre_todo
+    ),
+  columns = c(
+    list(
+      grupo_mayor = reactable::colDef(
+        name = "Grupo", minWidth = 160
+      ),
+      patologia_principal = reactable::colDef(
+        name = "Patología", minWidth = 220, sticky = "left"
+      ),
+      total = reactable::colDef(
+        name = "Total 2019–24", align = "right",
+        format = reactable::colFormat(separators = TRUE)
+      ),
+      n_anios_con = reactable::colDef(
+        name = "Años con datos", align = "center",
+        cell = reactable::JS("function(ci) {
+          const v = ci.value;
+          const c = v === 6 ? '#198754' : v >= 4 ? '#fd7e14' : '#dc3545';
+          return `<b style='color:${c}'>${v}/6</b>`;
+        }"), html = TRUE
+      ),
+      cubre_todo = reactable::colDef(
+        name = "¿6/6 años?", align = "center",
+        cell = function(v) if (isTRUE(v)) "✔ Sí" else "✘ No"
+      )
+    ),
+    # Columnas de año con colores según volumen
+    setNames(
+      lapply(anios, function(a) {
+        reactable::colDef(
+          name = a, align = "right",
+          format = reactable::colFormat(separators = TRUE),
+          style = reactable::JS(
+            "function(rowInfo, colInfo) {
+              const v = rowInfo.values[colInfo.id];
+              if (!v || v === 0)
+                return { color: '#dc3545', fontWeight: 'bold' };
+              if (v < 50)
+                return { color: '#fd7e14', fontWeight: 'bold' };
+              return {};
+            }"
+          )
+        )
+      }),
+      anios
+    )
+  ),
+  searchable = TRUE, sortable = TRUE, striped = TRUE,
+  compact = TRUE, highlight = TRUE, wrap = FALSE,
+  defaultPageSize = 30,
+  defaultSorted = list(total = "desc")
+)
+```
+
+::: {.callout-warning}
+**Regla de inclusión:** patologías con **rojo en algún año** (0 casos) o con
+**n_anios_con < 6** deben evaluarse para exclusión del modelo. Patologías con
+volumenes muy bajos en naranja (<50 casos) pueden unirse a la categoría
+"Otras" o eliminarse si no son clínicamente prioritarias.
+:::
+
+## Distribución proporcional por año (barras apiladas)
+
+```{r barras-proporcional}
+freq_pat_anio |>
+  dplyr::filter(patologia_principal != "Sin clasificar (reum.)") |>
+  dplyr::group_by(anio) |>
+  dplyr::mutate(pct = 100 * n / sum(n)) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(
+    patologia_principal = forcats::fct_reorder(
+      patologia_principal, n,
+      .fun = sum, .desc = FALSE
+    )
+  ) |>
+  ggplot(aes(x = anio, y = pct, fill = patologia_principal)) +
+  geom_col(width = 0.7, position = "stack") +
+  scale_y_continuous(labels = scales::label_percent(scale = 1)) +
+  scale_fill_viridis_d(option = "turbo", name = NULL) +
+  labs(
+    title = "Composición de patologías reumatológicas por año (%)",
+    subtitle = "¿Cambia la mezcla de enfermedades entre 2019 y 2024?",
+    x = "Año", y = "% dentro del año"
+  ) +
+  guides(fill = guide_legend(ncol = 1, keyheight = 0.7)) +
+  tema_base +
+  theme(legend.text = element_text(size = 7.5))
+```
+
+---
+
+# Volumen Global por Año {#volumen}
+
+```{r volumen-anio}
+vol <- df |>
+  dplyr::group_by(anio) |>
+  dplyr::summarise(
+    n_total  = dplyr::n(),
+    n_reum   = sum(grupo_paciente == "Reumatológico", na.rm = TRUE),
+    pct_reum = round(100 * n_reum / n_total, 1),
+    .groups  = "drop"
+  )
+
+vol_long <- vol |>
+  dplyr::mutate(n_no_reum = n_total - n_reum) |>
+  dplyr::select(anio,
+    Reumatológico = n_reum,
+    `No reumatológico` = n_no_reum
+  ) |>
+  tidyr::pivot_longer(-anio, names_to = "grupo", values_to = "n")
+
+ggplot(vol_long, aes(x = anio, y = n, fill = grupo)) +
+  geom_col(width = 0.65, position = "stack") +
+  geom_text(
+    data = vol,
+    aes(
+      x = anio, y = n_total,
+      label = paste0(pct_reum, "%\nreum.")
+    ),
+    inherit.aes = FALSE,
+    vjust = -0.3, size = 3, color = "#1B3A5C", fontface = "bold"
+  ) +
+  scale_y_continuous(
+    labels = scales::label_comma(),
+    expand = expansion(mult = c(0, .12))
+  ) +
+  scale_fill_manual(values = c(
+    "Reumatológico" = "#F28E2B",
+    "No reumatológico" = "#4E79A7"
+  )) +
+  labs(
+    title = "Registros totales por año — Global vs Reumatológico",
+    x = NULL, y = "N registros", fill = NULL
+  ) +
+  tema_base
+```
+
+---
+
+# Completitud Temporal por Columna {#completitud}
+
+::: {.callout-note}
+Sección de apoyo. El Módulo 02 muestra el % NA consolidado 2019–2024.
+Aquí se desglosa por año para detectar cambios en el sistema de registro
+o efectos como el impacto COVID-19 en la calidad del dato.
+:::
+
+```{r calcular-completitud}
+#| cache: true
+#| cache.lazy: false
+
+COLS_INTERNAS <- c("grupo_paciente", "anio")
+cols_analisis <- setdiff(names(df), COLS_INTERNAS)
+
+comp_anio <- purrr::map_dfr(anios, function(a) {
+  df_a <- df |> dplyr::filter(anio == a)
+  n_a <- nrow(df_a)
+  purrr::map_dfr(cols_analisis, function(col) {
+    x <- df_a[[col]]
+    vacios <- is.na(x) | stringr::str_trim(as.character(x)) == "" |
+      as.character(x) == "NULL"
+    tibble::tibble(
+      anio    = a,
+      columna = col,
+      n_total = n_a,
+      n_na    = sum(vacios, na.rm = TRUE),
+      pct_na  = round(100 * sum(vacios, na.rm = TRUE) / n_a, 1)
+    )
+  })
+})
+```
+
+```{r heatmap-na}
+#| fig-height: 18
+
+orden_cols <- comp_anio |>
+  dplyr::group_by(columna) |>
+  dplyr::summarise(media_na = mean(pct_na), .groups = "drop") |>
+  dplyr::arrange(desc(media_na)) |>
+  dplyr::pull(columna)
+
+comp_anio |>
+  dplyr::mutate(columna = factor(columna, levels = orden_cols)) |>
+  ggplot(aes(x = anio, y = columna, fill = pct_na)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = ifelse(pct_na > 5, paste0(pct_na, "%"), "")),
+    size = 2.2, color = "white"
+  ) +
+  scale_fill_gradientn(
+    colours = c("#198754", "#ffc107", "#fd7e14", "#dc3545"),
+    values = scales::rescale(c(0, 20, 50, 100)),
+    limits = c(0, 100), name = "% NA"
+  ) +
+  labs(
+    title = "Completitud por columna y año — % valores ausentes",
+    subtitle = "Verde = completo | Rojo = muy incompleto. Ordenado de más a menos NA.",
+    x = "Año", y = NULL
+  ) +
+  tema_base +
+  theme(
+    axis.text.y = element_text(size = 6.5),
+    legend.position = "right"
+  )
+```
+
+---
+
+# Notas Metodológicas {#notas}
+
+```{r notas}
+#| results: asis
+
+n_con_6 <- sum(freq_wide$cubre_todo, na.rm = TRUE)
+n_total_cat <- nrow(freq_wide)
+
+tagList(
+  tags$div(
+    style = "background:#f8f9fa;border-left:4px solid #4E79A7;
+             padding:16px;border-radius:4px;font-size:0.88em;",
+    tags$h4("Metadatos de esta ejecución"),
+    tags$ul(
+      tags$li(glue("Fecha: {format(Sys.time(), '%Y-%m-%d %H:%M:%S')}")),
+      tags$li(glue("Fuente: {RUTA_CONSOLIDADO}")),
+      tags$li(glue("Años analizados: {paste(anios, collapse = ', ')}")),
+      tags$li(glue("Total registros: {fmt_n(n_total)}")),
+      tags$li(glue("Pacientes reumatológicos: {fmt_n(n_reum)} ({pct_reum}%)")),
+      tags$li(glue("Categorías en el mapa de patologías: {nrow(MAPA_DISPLAY)}")),
+      tags$li(glue("Patologías con presencia en los 6 años: {n_con_6} / {n_total_cat}"))
+    )
+  ),
+  tags$br(),
+  tags$div(
+    style = "background:#fff3cd;border-left:4px solid #f39c12;
+             padding:12px 16px;border-radius:4px;font-size:0.86em;",
+    tags$strong("Criterio de clasificación de diagnóstico: "),
+    "Se sourcea ", tags$code("_codigos_cie.R"), " — el mismo archivo que usa ",
+    tags$code("_prep_cardinalidad.R"), " para definir ",
+    tags$code("grupo_paciente = \"Reumatológico\""), ". ",
+    "El matching es exacto (", tags$code("%in% TODOS_LOS_CODIGOS"), ") usando un ",
+    "lookup O(1). Se recorre DIAGNOSTICO1 → DIAGNOSTICO35 y la primera posición ",
+    "con código reconocido determina la patología principal. ",
+    tags$br(), tags$br(),
+    tags$strong("Enfermedades en el mapa: "),
+    paste(
+      length(CODIGOS_REUMATICOS), "enfermedades |",
+      length(TODOS_LOS_CODIGOS), "códigos únicos."
+    )
+  )
+)
+```

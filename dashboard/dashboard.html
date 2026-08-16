@@ -22,6 +22,7 @@
   h2{color:var(--tinta);font-size:16px;margin:6px 0 2px}
   .sub{color:var(--gris);font-size:13px;margin:0 0 12px}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px;align-items:start}
+  .grid2{grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
   .grid .wide{grid-column:1/-1}
   .card{background:#fff;border:1px solid var(--linea);border-radius:10px;padding:16px}
   .card h3{margin:0 0 12px;font-size:13.5px;color:var(--tinta);display:flex;align-items:center;font-weight:600}
@@ -53,6 +54,9 @@
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
   .nota{font-size:12px;color:var(--gris);margin-top:8px}
   footer{padding:16px 26px;color:var(--gris);font-size:11.5px;border-top:1px solid var(--linea);margin-top:10px}
+  #aviso{display:none;margin:12px 22px 0;padding:10px 14px;background:#fff6e6;border:1px solid #ffe0a3;color:#8a4f00;border-radius:8px;font-size:13px}
+  #aviso.on{display:block}
+  .limit{margin:12px 22px 0;max-width:1150px;padding:10px 14px;background:#eef0f2;border:1px solid var(--linea);border-radius:8px;font-size:12.5px;color:var(--gris)}
   #heat{overflow-x:auto}
   #heat table{min-width:600px}
   #filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;background:#fff;border-bottom:1px solid var(--linea);
@@ -81,12 +85,14 @@
 
 <div id="filtros">
   <div class="fg"><label>Región</label><select id="f_reg"></select></div>
-  <div class="fg"><label>Previsión</label><select id="f_prev"></select></div>
+  <div class="fg"><label title="FONASA A–D: tramos según ingreso; libre elección: modalidad de FONASA; No FONASA: paciente con ISAPRE, particular u otra previsión, atendido igual en la red pública.">Previsión&nbsp;<i class="fa-solid fa-circle-info" style="color:var(--gris);font-size:11px"></i></label><select id="f_prev"></select></div>
   <div class="fg"><label>Tramo etario</label><select id="f_tramo"></select></div>
   <div class="fg"><label>Año</label><select id="f_anio"></select></div>
   <button id="f_limpiar">Limpiar</button>
   <span id="nfiltro"></span>
 </div>
+<div id="aviso"></div>
+<div class="limit"><i class="fa-solid fa-circle-exclamation" style="color:var(--acento)"></i> <b>Lectura con cuidado.</b> Una enfermedad se cuenta cuando aparece entre los <b>tres primeros diagnósticos</b> del egreso, aunque no sea el motivo principal del ingreso. Por eso, en algunas patologías los indicadores (p. ej. % cirugía o estancia) pueden reflejar la condición que motivó la hospitalización y no la enfermedad reumática en sí. Aplica tanto a la vista por enfermedad como a la comparativa.</div>
 
 <main>
   <!-- VISTA 1 -->
@@ -108,12 +114,15 @@
     <h2>¿Cómo es el perfil hospitalario de la enfermedad y en qué se aparta de la referencia?</h2>
     <p class="sub">Indicadores de la enfermedad frente a dos referencias: la cohorte reumatológica y la población hospitalizada general. Los indicadores son a nivel de enfermedad; los filtros ajustan el tamaño (n).</p>
     <select id="sel"></select>
-    <div class="grid">
+    <div class="grid grid2">
       <div class="card wide"><h3 data-ico="sliders">Indicadores vs. referencias</h3><div class="cwrap"><canvas id="c_ind"></canvas></div></div>
       <div class="card"><h3 data-ico="card">Ficha</h3><table id="ficha"></table></div>
       <div class="card"><h3 data-ico="bars">Distribución por tramo etario (según filtros)</h3><div class="cwrap"><canvas id="c_enf_tramo"></canvas></div></div>
       <div class="card"><h3 data-ico="pulse">Principales comorbilidades por sistema</h3><div class="cwrap"><canvas id="c_comorb"></canvas></div>
-        <div class="nota">Episodios con al menos una comorbilidad del sistema; excluye los 14 grupos de códigos que definen la cohorte. Nivel de enfermedad.</div>
+        <div class="nota">Episodios con al menos una comorbilidad (CIE-10) del sistema; excluye los 14 grupos de códigos que definen la cohorte. Nivel de enfermedad.</div>
+      </div>
+      <div class="card"><h3 data-ico="proc">Principales procedimientos por sistema</h3><div class="cwrap"><canvas id="c_proc"></canvas></div>
+        <div class="nota">Episodios con al menos un procedimiento (CIE-9-MC) del sistema. Atención: algunos procedimientos son definitorios del tratamiento (p. ej. la artroplastia, en «Musculoesquelético», para la artrosis) y no un rasgo propio de la enfermedad. Nivel de enfermedad.</div>
       </div>
     </div>
   </section>
@@ -123,10 +132,11 @@
     <h2>¿Cómo se ordenan las enfermedades entre sí en carga y uso de recursos?</h2>
     <p class="sub">Estancia mediana (eje horizontal) frente a reingreso a 30 días (eje vertical); tamaño del punto por n (según filtros), color por grupo.</p>
     <div class="leyenda">
-      <span><i class="dot" style="background:var(--sist)"></i>Sistémica autoinmune</span>
-      <span><i class="dot" style="background:var(--infl)"></i>Inflamatoria articular</span>
-      <span><i class="dot" style="background:var(--degen)"></i>Degenerativa / otra</span>
+      <span title="Lupus, vasculitis, esclerodermia, Sjögren, miositis, Raynaud"><i class="dot" style="background:var(--sist)"></i>Sistémica autoinmune</span>
+      <span title="Artritis reumatoide, artritis idiopática juvenil, artritis psoriásica, espondilitis anquilosante"><i class="dot" style="background:var(--infl)"></i>Inflamatoria articular</span>
+      <span title="Artrosis, gota, fibromialgia, uveítis"><i class="dot" style="background:var(--degen)"></i>Degenerativa / otra</span>
     </div>
+    <div class="nota">Agrupación de trabajo (no una clasificación nosológica formal); pasa el cursor sobre cada grupo para ver sus enfermedades.</div>
     <div class="grid">
       <div class="card wide"><h3 data-ico="scatter">Mapa de carga</h3><div class="cwrap tall"><canvas id="c_scatter"></canvas></div></div>
       <div class="card wide"><h3 data-ico="table">Indicadores estandarizados (z-score por columna)</h3><div id="heat"></div>
@@ -161,10 +171,10 @@ const grupos={sist:"Sistémica autoinmune",infl:"Inflamatoria articular",degen:"
 const META={
   estancia:{sh:"Estancia",help:"Días de hospitalización, mediana."},
   urg:{sh:"Urg.",help:"% de ingresos por urgencia sobre el total."},
-  cir:{sh:"Cir.",help:"% de episodios con intervención quirúrgica / uso de pabellón."},
+  cir:{sh:"Cir.",help:"% de episodios con intervención quirúrgica (hubo especialidad de intervención registrada). El uso de pabellón es una señal aparte."},
   reing:{sh:"Reing.",help:"% de reingreso hospitalario dentro de 30 días."},
   peso:{sh:"Peso",help:"Peso relativo GRD, mediana."},
-  mort:{sh:"Mort.",help:"% de mortalidad intrahospitalaria."},
+  mort:{sh:"Mort.",help:"% de egresos con tipo de alta «fallecido»: mortalidad intrahospitalaria (no incluye muertes posteriores al alta; no es causa de muerte)."},
   sev:{sh:"Sev.",help:"Severidad GRD, mediana."}
 };
 const $=s=>document.querySelector(s);
@@ -176,7 +186,7 @@ const lbl = s => s==="None" ? "Sin dato" : s;
 // --- Íconos (FontAwesome 6) ---
 const FA={funnel:"fa-filter",bars:"fa-chart-column",line:"fa-chart-line",pin:"fa-location-dot",
   sliders:"fa-sliders",card:"fa-id-card",pulse:"fa-heart-pulse",scatter:"fa-circle-nodes",
-  table:"fa-table-cells",users:"fa-users",percent:"fa-percent",calendar:"fa-calendar-days"};
+  table:"fa-table-cells",users:"fa-users",percent:"fa-percent",calendar:"fa-calendar-days",proc:"fa-syringe"};
 const svgIco=(name,cls)=>`<i class="fa-solid ${FA[name]||'fa-circle'} ${cls===undefined?'ico':cls}"></i>`;
 
 // navegación
@@ -266,7 +276,8 @@ function bar(id,labels,data,color,horiz,showVals){
     options:{responsive:true,maintainAspectRatio:false,indexAxis:horiz?"y":"x",
       layout:showVals?{padding:{right:horiz?46:0,top:horiz?0:14}}:{},
       plugins:{legend:{display:false}},
-      scales:horiz?{x:{title:{display:true,text:"episodios"}}}:{y:{title:{display:true,text:"episodios"}}}}});
+      scales:horiz?{x:{title:{display:true,text:"episodios"}},y:{ticks:{autoSkip:false,font:{size:10}}}}
+                  :{y:{title:{display:true,text:"episodios"}},x:{ticks:{autoSkip:false,font:{size:10}}}}}});
   CH[id].$showVals=!!showVals; CH[id].update();
 }
 const IND=[["estancia","Estancia mediana (días)"],["urg","% urgencia"],["cir","% cirugía"],
@@ -292,10 +303,11 @@ function pintaEnf(id){
       const k=IND[it[0].dataIndex][0]; return META[k]?META[k].help:"";}}}},scales:{y:{beginAtZero:true}}}});
   const nf=nEnf(i);
   const HF={"n (según filtros)":"Episodios que cumplen los filtros activos.","Edad mediana":"Edad en años, mediana.",
-    "% mujeres":"% de mujeres.","Estancia mediana":META.estancia.help,"% urgencia":META.urg.help,
+    "% mujeres":"% de mujeres.","% hombres":"% de hombres.","Estancia mediana":META.estancia.help,"% urgencia":META.urg.help,
     "% cirugía":META.cir.help,"Reingreso 30 d":META.reing.help,"Severidad med.":META.sev.help,"% mortalidad":META.mort.help};
   $("#ficha").innerHTML=`<thead><tr><th>Indicador</th><th>${e.nombre}</th><th>Cohorte</th></tr></thead><tbody>`+
-    [["n (según filtros)",fmt(nf),fmt(totalCoh())],["Edad mediana",e.edad,"—"],["% mujeres",e.mujer,"—"],
+    [["n (según filtros)",fmt(nf),fmt(totalCoh())],["Edad mediana",e.edad,rc.edad],["% mujeres",e.mujer,rc.mujer],
+     ["% hombres",e.hombre,rc.hombre],
      ["Estancia mediana",e.estancia,rc.estancia],["% urgencia",e.urg,rc.urg],["% cirugía",e.cir,rc.cir],
      ["Reingreso 30 d",e.reing,rc.reing],["Severidad med.",e.sev,rc.sev],["% mortalidad",e.mort,rc.mort]]
     .map(r=>`<tr><td title="${HF[r[0]]||''}">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("")+`</tbody>`;
@@ -304,6 +316,9 @@ function pintaEnf(id){
   if(HAS && DATOS.comorbilidades){const co=DATOS.comorbilidades[i]||[];
     bar("c_comorb",co.map(x=>x.sis),co.map(x=>x.n),co.map(()=>COL[e.grupo]),true,true);}
   else{$("#c_comorb").closest(".card").style.display="none";}
+  if(HAS && DATOS.procedimientos){const pr=DATOS.procedimientos[i]||[];
+    bar("c_proc",pr.map(x=>x.sis),pr.map(x=>x.n),pr.map(()=>COL[e.grupo]),true,true);}
+  else{$("#c_proc").closest(".card").style.display="none";}
 }
 
 const refLines={id:"refLines",afterDraw(chart){
@@ -342,6 +357,11 @@ function render(){
   pintaEnf($("#sel").value || DATOS.enfermedades[0].id);
   pintaScatter();
   $("#nfiltro").textContent = "n "+(sinFiltro()?"= "+fmt(totalCoh())+" (cohorte completa)":"≈ "+fmt(totalCoh())+" (filtrado)");
+  const av=$("#aviso");
+  if(!sinFiltro() && totalCoh()===0){
+    av.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> No hay episodios para esta combinación de filtros, o los resultados se ocultaron por privacidad (menos de 5 casos por celda).';
+    av.classList.add("on");
+  } else av.classList.remove("on");
 }
 
 // selector vista 2

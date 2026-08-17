@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perfiles hospitalarios reumatológicos — GRD Chile (prototipo)</title>
+<title>Perfiles hospitalarios reumatológicos · GRD Chile (prototipo)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <style>
@@ -66,87 +66,161 @@
   #filtros select{padding:5px 8px;font-size:13px}
   #filtros button{border:1px solid var(--linea);background:#f2f4f6;color:var(--tinta);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
   #nfiltro{margin-left:auto;font-size:13px;color:var(--tinta);font-weight:600;align-self:center}
+  /* Vista explicativa */
+  .about{max-width:900px}
+  .about .card{margin-bottom:16px}
+  .about h3{font-size:14px}
+  .about p{font-size:13.5px;line-height:1.5;color:#3a4149;margin:0 0 10px}
+  .about dl{margin:0;font-size:13.5px;line-height:1.5}
+  .about dt{font-weight:600;color:var(--tinta);margin-top:10px}
+  .about dd{margin:2px 0 0;color:#3a4149}
+  .about .tag{display:inline-block;background:#fbe9d7;color:#a15c00;border-radius:5px;padding:1px 7px;font-size:11.5px;font-weight:600;margin-right:6px}
+  /* Tooltip táctil (funciona en móvil, no solo hover) */
+  #tt{position:fixed;z-index:60;max-width:280px;background:var(--tinta);color:#fff;padding:8px 11px;border-radius:7px;
+      font-size:12px;line-height:1.4;box-shadow:0 6px 18px rgba(0,0,0,.22);display:none;pointer-events:none}
+  #tt:after{content:"";position:absolute;left:var(--ax,50%);top:-5px;border:5px solid transparent;border-bottom-color:var(--tinta);transform:translateX(-50%)}
+  .hastip{cursor:help;border-bottom:1px dotted var(--gris)}
 </style>
 </head>
 <body>
 <header>
   <img class="logo" src="logo_usach.png" alt="USACH" onerror="this.style.display='none'">
   <div class="htxt">
-    <h1>Perfiles hospitalarios de enfermedades reumáticas — Registros GRD de Chile (2019–2024)</h1>
-    <p>Prototipo metodológico. Cohorte de estudio: episodios con la enfermedad entre los tres primeros diagnósticos del egreso. Toda celda con n &lt; 5 se suprime y no se publica.</p>
+    <h1>Perfiles hospitalarios de patologías reumáticas · Registros GRD de Chile (2019–2024)</h1>
+    <p>Prototipo metodológico. La unidad de conteo es la <b>hospitalización</b> (un egreso), no la persona: una misma persona puede tener varias hospitalizaciones. Cohorte de estudio: hospitalizaciones con la patología entre los tres primeros diagnósticos del egreso. Toda celda con n &lt; 5 se suprime y no se publica.</p>
   </div>
 </header>
 
 <nav>
-  <button class="on" data-v="v1">1 · Resumen de cohorte</button>
-  <button data-v="v2">2 · Por enfermedad</button>
+  <button class="on" data-v="v0">Acerca de</button>
+  <button data-v="v1">1 · Resumen de cohorte</button>
+  <button data-v="v2">2 · Por patología</button>
   <button data-v="v3">3 · Comparativa</button>
 </nav>
 
 <div id="filtros">
   <div class="fg"><label>Región</label><select id="f_reg"></select></div>
-  <div class="fg"><label title="FONASA A–D: tramos según ingreso; libre elección: modalidad de FONASA; No FONASA: paciente con ISAPRE, particular u otra previsión, atendido igual en la red pública.">Previsión&nbsp;<i class="fa-solid fa-circle-info" style="color:var(--gris);font-size:11px"></i></label><select id="f_prev"></select></div>
+  <div class="fg"><label title="FONASA A a D: tramos según ingreso; libre elección: modalidad de FONASA; No FONASA: paciente con ISAPRE, particular u otra previsión, atendido igual en la red pública.">Previsión&nbsp;<i class="fa-solid fa-circle-info" style="color:var(--gris);font-size:11px"></i></label><select id="f_prev"></select></div>
   <div class="fg"><label>Tramo etario</label><select id="f_tramo"></select></div>
   <div class="fg"><label>Año</label><select id="f_anio"></select></div>
   <button id="f_limpiar">Limpiar</button>
   <span id="nfiltro"></span>
 </div>
 <div id="aviso"></div>
-<div class="limit"><i class="fa-solid fa-circle-exclamation" style="color:var(--acento)"></i> <b>Lectura con cuidado.</b> Una enfermedad se cuenta cuando aparece entre los <b>tres primeros diagnósticos</b> del egreso, aunque no sea el motivo principal del ingreso. Por eso, en algunas patologías los indicadores (p. ej. % cirugía o estancia) pueden reflejar la condición que motivó la hospitalización y no la enfermedad reumática en sí. Aplica tanto a la vista por enfermedad como a la comparativa.</div>
+<div class="limit"><i class="fa-solid fa-circle-exclamation" style="color:var(--acento)"></i> <b>Lectura con cuidado.</b> Una patología se cuenta cuando aparece entre los <b>tres primeros diagnósticos</b> del egreso, aunque no sea el motivo principal del ingreso. Por eso, en algunas patologías los indicadores (p. ej. % cirugía o estancia) pueden reflejar la condición que motivó la hospitalización y no la patología reumática en sí. Aplica tanto a la vista por patología como a la comparativa.</div>
 
 <main>
+  <!-- VISTA 0 · ACERCA DE -->
+  <section id="v0" class="vista on">
+    <h2>Acerca de este panel</h2>
+    <p class="sub">Qué es, de dónde nace y cómo leer sus cifras.</p>
+    <div class="about">
+      <div class="card">
+        <h3><i class="fa-solid fa-circle-info ico"></i>¿Qué es?</h3>
+        <p>Prototipo de panel interactivo que <b>caracteriza a los pacientes reumatológicos hospitalizados en Chile</b>
+        a partir de los registros GRD (Grupos Relacionados por el Diagnóstico) del período 2019–2024. Resume, por
+        patología, el volumen de hospitalizaciones, el perfil demográfico y el uso de recursos, y permite compararlas
+        entre sí y frente a la población hospitalizada general.</p>
+      </div>
+      <div class="card">
+        <h3><i class="fa-solid fa-lightbulb ico"></i>¿De dónde nace y por qué?</h3>
+        <p>Forma parte del <b>trabajo de título de Diego Oliva López</b> (Universidad de Santiago de Chile). En Chile
+        persiste un vacío de evidencia epidemiológica reciente en reumatología, en especial en población adulta, ya que
+        el único antecedente nacional con datos GRD es pediátrico. Este panel abarca a los pacientes hospitalizados de
+        <b>todas las edades</b> (desde los 0 a 18 años hasta los mayores de 60) y traduce los registros GRD, poco usados
+        en investigación clínica reumatológica pese a ser una fuente amplia y estandarizada, en información epidemiológica
+        explorable, como insumo para la planificación sanitaria (no interviene sobre la gestión ni la práctica clínica).</p>
+      </div>
+      <div class="card">
+        <h3><i class="fa-solid fa-book ico"></i>Definiciones y precisiones</h3>
+        <dl>
+          <dt>Hospitalización (unidad de conteo)</dt>
+          <dd>Cada cifra cuenta <b>hospitalizaciones</b> (un egreso cada una), <b>no personas</b>. Una misma persona
+          puede tener varias hospitalizaciones en el período; por eso los totales son de hospitalizaciones, no de pacientes únicos.</dd>
+          <dt>Cohorte de estudio</dt>
+          <dd>Hospitalizaciones en que la patología reumática aparece entre los <b>tres primeros diagnósticos</b> del egreso.
+          Es un criterio de especificidad: prioriza los casos donde la patología fue relevante en la hospitalización.</dd>
+          <dt>Indicadores y unidades</dt>
+          <dd>Estancia (días, mediana) · Urgencia, Cirugía, Reingreso a 30 días y Mortalidad intrahospitalaria (en % de
+          hospitalizaciones) · Peso y Severidad GRD (mediana) · Edad (años, mediana). Los tramos etarios están en años.</dd>
+          <dt>Peso y severidad GRD</dt>
+          <dd>Dos índices que produce el agrupador GRD a partir de los diagnósticos y procedimientos del egreso.
+          El <b>peso relativo</b> refleja el consumo de recursos esperado para esa hospitalización respecto al caso
+          promedio del sistema (1,0 es el promedio; sobre 1 consume más recursos, bajo 1 consume menos; es una razón,
+          sin unidad). La <b>severidad</b> (APR-DRG) es el nivel de gravedad clínica asignado según comorbilidades y
+          complicaciones, en escala ordinal de 1 (menor) a 4 (extrema).</dd>
+          <dt>Previsión</dt>
+          <dd>FONASA A a D (tramos según ingreso), FONASA libre elección, y <b>No FONASA</b> (ISAPRE, particular u otra
+          previsión, atendido igual en la red pública).</dd>
+          <dt>Privacidad</dt>
+          <dd>Toda celda con <b>menos de 5 hospitalizaciones</b> (n &lt; 5) se suprime y no se publica.</dd>
+          <dt>Advertencia de lectura</dt>
+          <dd>Como la patología puede no ser el motivo principal del ingreso, algunos indicadores pueden reflejar la
+          condición que motivó la hospitalización y no la patología reumática en sí.</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <h3><i class="fa-solid fa-compass ico"></i>Cómo usarlo</h3>
+        <p><span class="tag">Filtros</span> Arriba puedes acotar por región, previsión, tramo etario y año; el conteo de
+        hospitalizaciones se actualiza en la barra. <span class="tag">Vista 1</span> tamaño y conformación de la cohorte.
+        <span class="tag">Vista 2</span> perfil de cada patología frente a dos referencias. <span class="tag">Vista 3</span>
+        cómo se ordenan las patologías entre sí en carga y uso de recursos.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- VISTA 1 -->
-  <section id="v1" class="vista on">
-    <h2>¿De qué tamaño es el problema y cómo se conformó la cohorte?</h2>
-    <p class="sub">Conformación de la cohorte (sin filtrar), y volumen por enfermedad, año, tramo etario y región según los filtros activos.</p>
+  <section id="v1" class="vista">
     <div id="kpis" class="kpis"></div>
+    <h2>¿De qué tamaño es el problema y cómo se conformó la cohorte?</h2>
+    <p class="sub">Conformación de la cohorte (sin filtrar), y volumen por patología, año, tramo etario y región según los filtros activos.</p>
     <div class="grid">
       <div id="funnel" class="card wide"><h3 data-ico="funnel">Conformación de la cohorte</h3></div>
-      <div class="card"><h3 data-ico="bars">Volumen por enfermedad</h3><div class="cwrap"><canvas id="c_vol"></canvas></div></div>
-      <div class="card"><h3 data-ico="line">Episodios por año</h3><div class="cwrap"><canvas id="c_anio"></canvas></div></div>
-      <div class="card"><h3 data-ico="bars">Distribución por tramo etario</h3><div class="cwrap"><canvas id="c_tramo"></canvas></div></div>
-      <div class="card wide"><h3 data-ico="pin">Distribución por región</h3><div class="cwrap"><canvas id="c_region"></canvas></div></div>
+      <div class="card"><h3 data-ico="bars">Volumen de hospitalizaciones por patología</h3><div class="cwrap"><canvas id="c_vol"></canvas></div></div>
+      <div class="card"><h3 data-ico="line">Hospitalizaciones por año</h3><div class="cwrap"><canvas id="c_anio"></canvas></div></div>
+      <div class="card"><h3 data-ico="bars">Distribución de hospitalizaciones por tramo etario (años)</h3><div class="cwrap"><canvas id="c_tramo"></canvas></div></div>
+      <div class="card wide"><h3 data-ico="pin">Distribución de hospitalizaciones por región</h3><div class="cwrap"><canvas id="c_region"></canvas></div></div>
     </div>
   </section>
 
   <!-- VISTA 2 -->
   <section id="v2" class="vista">
-    <h2>¿Cómo es el perfil hospitalario de la enfermedad y en qué se aparta de la referencia?</h2>
-    <p class="sub">Indicadores de la enfermedad frente a dos referencias: la cohorte reumatológica y la población hospitalizada general. Los indicadores son a nivel de enfermedad; los filtros ajustan el tamaño (n).</p>
+    <h2>¿Cómo es el perfil hospitalario de la patología y en qué se aparta de la referencia?</h2>
+    <p class="sub">Indicadores de la patología frente a dos referencias: la cohorte reumatológica y la población hospitalizada general. Los indicadores son a nivel de patología; los filtros ajustan el número de hospitalizaciones.</p>
     <select id="sel"></select>
     <div class="grid grid2">
       <div class="card wide"><h3 data-ico="sliders">Indicadores vs. referencias</h3><div class="cwrap"><canvas id="c_ind"></canvas></div></div>
       <div class="card"><h3 data-ico="card">Ficha</h3><table id="ficha"></table></div>
-      <div class="card"><h3 data-ico="bars">Distribución por tramo etario (según filtros)</h3><div class="cwrap"><canvas id="c_enf_tramo"></canvas></div></div>
+      <div class="card"><h3 data-ico="bars">Distribución de hospitalizaciones por tramo etario (según filtros)</h3><div class="cwrap"><canvas id="c_enf_tramo"></canvas></div></div>
       <div class="card"><h3 data-ico="pulse">Principales comorbilidades por sistema</h3><div class="cwrap"><canvas id="c_comorb"></canvas></div>
-        <div class="nota">Episodios con al menos una comorbilidad (CIE-10) del sistema; excluye los 14 grupos de códigos que definen la cohorte. Nivel de enfermedad.</div>
+        <div class="nota">Hospitalizaciones con al menos una comorbilidad (CIE-10) del sistema; excluye los 14 grupos de códigos que definen la cohorte. Nivel de patología.</div>
       </div>
       <div class="card"><h3 data-ico="proc">Principales procedimientos por sistema</h3><div class="cwrap"><canvas id="c_proc"></canvas></div>
-        <div class="nota">Episodios con al menos un procedimiento (CIE-9-MC) del sistema. Atención: algunos procedimientos son definitorios del tratamiento (p. ej. la artroplastia, en «Musculoesquelético», para la artrosis) y no un rasgo propio de la enfermedad. Nivel de enfermedad.</div>
+        <div class="nota">Hospitalizaciones con al menos un procedimiento (CIE-9-MC) del sistema. Atención: algunos procedimientos son definitorios del tratamiento (p. ej. la artroplastia, en «Musculoesquelético», para la artrosis) y no un rasgo propio de la patología. Nivel de patología.</div>
       </div>
     </div>
   </section>
 
   <!-- VISTA 3 -->
   <section id="v3" class="vista">
-    <h2>¿Cómo se ordenan las enfermedades entre sí en carga y uso de recursos?</h2>
-    <p class="sub">Estancia mediana (eje horizontal) frente a reingreso a 30 días (eje vertical); tamaño del punto por n (según filtros), color por grupo.</p>
+    <h2>¿Cómo se ordenan las patologías entre sí en carga y uso de recursos?</h2>
+    <p class="sub">Estancia mediana en días (eje horizontal) frente a reingreso a 30 días en % (eje vertical); tamaño del punto por número de hospitalizaciones (según filtros), color por grupo.</p>
     <div class="leyenda">
       <span title="Lupus, vasculitis, esclerodermia, Sjögren, miositis, Raynaud"><i class="dot" style="background:var(--sist)"></i>Sistémica autoinmune</span>
       <span title="Artritis reumatoide, artritis idiopática juvenil, artritis psoriásica, espondilitis anquilosante"><i class="dot" style="background:var(--infl)"></i>Inflamatoria articular</span>
       <span title="Artrosis, gota, fibromialgia, uveítis"><i class="dot" style="background:var(--degen)"></i>Degenerativa / otra</span>
     </div>
-    <div class="nota">Agrupación de trabajo (no una clasificación nosológica formal); pasa el cursor sobre cada grupo para ver sus enfermedades.</div>
+    <div class="nota">Agrupación de trabajo (no una clasificación nosológica formal); toca o pasa el cursor sobre cada grupo para ver sus patologías.</div>
     <div class="grid">
       <div class="card wide"><h3 data-ico="scatter">Mapa de carga</h3><div class="cwrap tall"><canvas id="c_scatter"></canvas></div></div>
       <div class="card wide"><h3 data-ico="table">Indicadores estandarizados (z-score por columna)</h3><div id="heat"></div>
-        <div class="nota">Teal = por debajo del promedio de la cohorte; rojo = por encima. Tabla a nivel de enfermedad (no depende de los filtros).</div>
+        <div class="nota">Teal = por debajo del promedio de la cohorte; rojo = por encima. Tabla a nivel de patología (no depende de los filtros).</div>
       </div>
     </div>
   </section>
 </main>
 
-<footer>Fuente: Registros GRD (2019–2024), FONASA · Elaboración propia · Prototipo metodológico — Trabajo de título, Universidad de Santiago de Chile.</footer>
+<footer>Fuente: Registros GRD (2019–2024), FONASA · Elaboración propia · Prototipo metodológico · Trabajo de título, Universidad de Santiago de Chile.</footer>
 
 <!-- Si existe datos_dashboard.js (salida de dashboard_agregados.py) se usa; si no, se usan los datos embebidos de abajo. -->
 <script src="datos_dashboard.js"></script>
@@ -154,7 +228,7 @@
 window.DATOS = window.DATOS || {
   funnel:[
     {label:"Egresos GRD 2019–2024", n:5808536},{label:"Base depurada", n:5801611},
-    {label:"Con la enfermedad en cualquier diagnóstico (máx. 35)", n:281640},{label:"Con la enfermedad entre los 3 diagnósticos principales", n:110647}],
+    {label:"Con la patología en cualquier diagnóstico (máx. 35)", n:281640},{label:"Con la patología entre los 3 diagnósticos principales", n:110647}],
   enfermedades:[
     {id:"artrosis",nombre:"Artrosis / osteoartritis",grupo:"degen",n:70345,edad:68,mujer:67.1,estancia:3.1,urg:17.5,cir:85.2,sev:1,peso:1.31,reing:5.4,mort:0.4},
     {id:"lupus",nombre:"Lupus eritematoso sistémico",grupo:"sist",n:13422,edad:39,mujer:88.0,estancia:7.2,urg:46.6,cir:26.5,sev:2,peso:0.87,reing:20.5,mort:1.5},
@@ -171,11 +245,11 @@ const grupos={sist:"Sistémica autoinmune",infl:"Inflamatoria articular",degen:"
 const META={
   estancia:{sh:"Estancia",help:"Días de hospitalización, mediana."},
   urg:{sh:"Urg.",help:"% de ingresos por urgencia sobre el total."},
-  cir:{sh:"Cir.",help:"% de episodios con intervención quirúrgica (hubo especialidad de intervención registrada). El uso de pabellón es una señal aparte."},
+  cir:{sh:"Cir.",help:"% de hospitalizaciones con intervención quirúrgica (hubo especialidad de intervención registrada). El uso de pabellón es una señal aparte."},
   reing:{sh:"Reing.",help:"% de reingreso hospitalario dentro de 30 días."},
-  peso:{sh:"Peso",help:"Peso relativo GRD, mediana."},
+  peso:{sh:"Peso",help:"Peso relativo GRD (mediana): índice del consumo de recursos esperado para la hospitalización respecto al caso promedio del sistema. 1,0 = caso promedio; mayor a 1 consume más recursos, menor a 1 consume menos. Es una razón, sin unidad."},
   mort:{sh:"Mort.",help:"% de egresos con tipo de alta «fallecido»: mortalidad intrahospitalaria (no incluye muertes posteriores al alta; no es causa de muerte)."},
-  sev:{sh:"Sev.",help:"Severidad GRD, mediana."}
+  sev:{sh:"Sev.",help:"Severidad APR-DRG (mediana): nivel de gravedad clínica que asigna el agrupador según las comorbilidades y complicaciones del episodio, en escala ordinal de 1 (menor) a 4 (extrema)."}
 };
 const $=s=>document.querySelector(s);
 const fmt=n=>Math.round(n).toLocaleString("es-CL");
@@ -250,8 +324,8 @@ const F0=DATOS.funnel[0].n;
 $("#funnel").insertAdjacentHTML("beforeend", `<div class="funnelflow">`+DATOS.funnel.map((s,i)=>{
   const prev=i?DATOS.funnel[i-1].n:s.n;
   const pctPrev=Math.round(1000*s.n/prev)/10, pctTot=Math.round(1000*s.n/F0)/10;
-  const tip=i?`${fmt(s.n)} episodios — ${pctPrev}% del paso anterior y ${pctTot}% del total inicial`
-             :`${fmt(s.n)} egresos — punto de partida`;
+  const tip=i?`${fmt(s.n)} hospitalizaciones: ${pctPrev}% del paso anterior y ${pctTot}% del total inicial`
+             :`${fmt(s.n)} egresos: punto de partida`;
   const op=(0.35+0.65*(i+1)/DATOS.funnel.length).toFixed(2);
   return `<div class="fstep" title="${tip}"><div class="fbar" style="opacity:${op}"></div>`+
     `<div class="fn">${fmt(s.n)}</div><div class="fl">${s.label}</div>`+
@@ -276,18 +350,18 @@ function bar(id,labels,data,color,horiz,showVals){
     options:{responsive:true,maintainAspectRatio:false,indexAxis:horiz?"y":"x",
       layout:showVals?{padding:{right:horiz?46:0,top:horiz?0:14}}:{},
       plugins:{legend:{display:false}},
-      scales:horiz?{x:{title:{display:true,text:"episodios"}},y:{ticks:{autoSkip:false,font:{size:10}}}}
-                  :{y:{title:{display:true,text:"episodios"}},x:{ticks:{autoSkip:false,font:{size:10}}}}}});
+      scales:horiz?{x:{title:{display:true,text:"hospitalizaciones"}},y:{ticks:{autoSkip:false,font:{size:10}}}}
+                  :{y:{title:{display:true,text:"hospitalizaciones"}},x:{ticks:{autoSkip:false,font:{size:10}}}}}});
   CH[id].$showVals=!!showVals; CH[id].update();
 }
-const IND=[["estancia","Estancia mediana (días)"],["urg","% urgencia"],["cir","% cirugía"],
-           ["reing","Reingreso 30 d (%)"],["peso","Peso GRD"],["mort","% mortalidad"]];
+const IND=[["estancia","Estancia mediana (días)"],["urg","Urgencia (%)"],["cir","Cirugía (%)"],
+           ["reing","Reingreso 30 d (%)"],["peso","Peso GRD (mediana)"],["mort","Mortalidad (%)"]];
 let chInd=null, chScatter=null;
 function linea(id,labels,data){
   if(CH[id])CH[id].destroy();
   CH[id]=new Chart($("#"+id),{type:"line",data:{labels,datasets:[{data,borderColor:"#333F48",
     backgroundColor:"#333F4822",fill:true,tension:.25,pointRadius:3}]},plugins:[valLabel],
-    options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16}},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:"episodios"}}}}});
+    options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16}},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:"hospitalizaciones"}}}}});
   CH[id].$showVals=true; CH[id].update();
 }
 
@@ -302,15 +376,15 @@ function pintaEnf(id){
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{afterBody:it=>{
       const k=IND[it[0].dataIndex][0]; return META[k]?META[k].help:"";}}}},scales:{y:{beginAtZero:true}}}});
   const nf=nEnf(i);
-  const HF={"n (según filtros)":"Episodios que cumplen los filtros activos.","Edad mediana":"Edad en años, mediana.",
-    "% mujeres":"% de mujeres.","% hombres":"% de hombres.","Estancia mediana":META.estancia.help,"% urgencia":META.urg.help,
-    "% cirugía":META.cir.help,"Reingreso 30 d":META.reing.help,"Severidad med.":META.sev.help,"% mortalidad":META.mort.help};
+  const HF={"Hospitalizaciones (según filtros)":"Número de hospitalizaciones (no personas) que cumplen los filtros activos.","Edad mediana (años)":"Edad en años, mediana.",
+    "Mujeres (%)":"% de hospitalizaciones de mujeres.","Hombres (%)":"% de hospitalizaciones de hombres.","Estancia mediana (días)":META.estancia.help,"Urgencia (%)":META.urg.help,
+    "Cirugía (%)":META.cir.help,"Reingreso 30 d (%)":META.reing.help,"Severidad (mediana)":META.sev.help,"Mortalidad (%)":META.mort.help};
   $("#ficha").innerHTML=`<thead><tr><th>Indicador</th><th>${e.nombre}</th><th>Cohorte</th></tr></thead><tbody>`+
-    [["n (según filtros)",fmt(nf),fmt(totalCoh())],["Edad mediana",e.edad,rc.edad],["% mujeres",e.mujer,rc.mujer],
-     ["% hombres",e.hombre,rc.hombre],
-     ["Estancia mediana",e.estancia,rc.estancia],["% urgencia",e.urg,rc.urg],["% cirugía",e.cir,rc.cir],
-     ["Reingreso 30 d",e.reing,rc.reing],["Severidad med.",e.sev,rc.sev],["% mortalidad",e.mort,rc.mort]]
-    .map(r=>`<tr><td title="${HF[r[0]]||''}">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("")+`</tbody>`;
+    [["Hospitalizaciones (según filtros)",fmt(nf),fmt(totalCoh())],["Edad mediana (años)",e.edad,rc.edad],["Mujeres (%)",e.mujer,rc.mujer],
+     ["Hombres (%)",e.hombre,rc.hombre],
+     ["Estancia mediana (días)",e.estancia,rc.estancia],["Urgencia (%)",e.urg,rc.urg],["Cirugía (%)",e.cir,rc.cir],
+     ["Reingreso 30 d (%)",e.reing,rc.reing],["Severidad (mediana)",e.sev,rc.sev],["Mortalidad (%)",e.mort,rc.mort]]
+    .map(r=>`<tr><td class="hastip" title="${HF[r[0]]||''}">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("")+`</tbody>`;
   if(HAS){const dt=distEnfTramo(i); bar("c_enf_tramo",dt.labels,dt.data,COL[e.grupo],false,true);}
   else{$("#c_enf_tramo").closest(".card").style.display="none";}
   if(HAS && DATOS.comorbilidades){const co=DATOS.comorbilidades[i]||[];
@@ -338,7 +412,7 @@ function pintaScatter(){
     data:{datasets:Object.keys(grupos).map(g=>({label:grupos[g],backgroundColor:COL[g]+"cc",
       data:DATOS.enfermedades.map((e,i)=>({e,i})).filter(o=>o.e.grupo===g)
         .map(o=>({x:o.e.estancia,y:o.e.reing,r:4+Math.sqrt(Math.max(ns[o.i],1))/18,nombre:o.e.nombre,nn:ns[o.i]}))}))},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:c=>`${c.raw.nombre}: estancia ${c.raw.x} d, reingreso ${c.raw.y}%, n ${fmt(c.raw.nn)}`}}},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:c=>`${c.raw.nombre}: estancia ${c.raw.x} d, reingreso ${c.raw.y}%, ${fmt(c.raw.nn)} hospitalizaciones`}}},
       scales:{x:{title:{display:true,text:"Estancia mediana (días)"}},y:{title:{display:true,text:"Reingreso a 30 días (%)"}}}}});
 }
 
@@ -356,10 +430,10 @@ function render(){
   // Vista 2 y 3
   pintaEnf($("#sel").value || DATOS.enfermedades[0].id);
   pintaScatter();
-  $("#nfiltro").textContent = "n "+(sinFiltro()?"= "+fmt(totalCoh())+" (cohorte completa)":"≈ "+fmt(totalCoh())+" (filtrado)");
+  $("#nfiltro").textContent = "Hospitalizaciones "+(sinFiltro()?"= "+fmt(totalCoh())+" (cohorte completa)":"≈ "+fmt(totalCoh())+" (filtrado)");
   const av=$("#aviso");
   if(!sinFiltro() && totalCoh()===0){
-    av.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> No hay episodios para esta combinación de filtros, o los resultados se ocultaron por privacidad (menos de 5 casos por celda).';
+    av.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> No hay hospitalizaciones para esta combinación de filtros, o los resultados se ocultaron por privacidad (menos de 5 casos por celda).';
     av.classList.add("on");
   } else av.classList.remove("on");
 }
@@ -369,7 +443,7 @@ DATOS.enfermedades.forEach(e=>$("#sel").insertAdjacentHTML("beforeend",`<option 
 $("#sel").onchange=()=>pintaEnf($("#sel").value);
 
 // ---------- Heatmap (nivel enfermedad, fijo) ----------
-const cols=[["estancia","Estancia"],["reing","Reing."],["sev","Sev."],["mort","Mort."],["urg","Urg."],["cir","Cir."],["peso","Peso"]];
+const cols=[["estancia","Estancia"],["reing","Reingreso"],["sev","Severidad"],["mort","Mortalidad"],["urg","Urgencia"],["cir","Cirugía"],["peso","Peso"]];
 const mean={},sd={};
 cols.forEach(([k])=>{const v=DATOS.enfermedades.map(e=>e[k]);const m=v.reduce((a,b)=>a+b,0)/v.length;
   mean[k]=m; sd[k]=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/v.length)||1;});
@@ -378,7 +452,7 @@ const C_BLANCO=[246,247,249], C_TEAL=[0,164,153], C_ROJO=[200,16,46]; // paleta 
 const cel=z=>{const t=Math.max(-1,Math.min(1,z/2));
   const c=t>=0?mix(C_BLANCO,C_ROJO,t):mix(C_BLANCO,C_TEAL,-t);
   return `rgb(${c[0]},${c[1]},${c[2]})`;};
-let h=`<table><thead><tr><th>Enfermedad</th>${cols.map(c=>`<th title="${META[c[0]]?META[c[0]].help:''}">${c[1]}</th>`).join("")}</tr></thead><tbody>`;
+let h=`<table><thead><tr><th>Patología</th>${cols.map(c=>`<th class="hastip" title="${META[c[0]]?META[c[0]].help:''}">${c[1]}</th>`).join("")}</tr></thead><tbody>`;
 [...DATOS.enfermedades].sort((a,b)=>b.reing-a.reing).forEach(e=>{
   h+=`<tr><td>${e.nombre}</td>`+cols.map(([k])=>{const z=(e[k]-mean[k])/sd[k];
     return `<td style="background:${cel(z)}">${e[k]}</td>`;}).join("")+`</tr>`;});
@@ -395,15 +469,42 @@ document.querySelectorAll(".card h3[data-ico]").forEach(el=>el.insertAdjacentHTM
   const pct=tot?Math.round(100*over60/tot):null;
   const anios=HAS?EJ.anios:["2019","2024"];
   const items=[
-    {ico:"users",v:fmt(totalCohorte),l:"Episodios en la cohorte",t:"Episodios con la enfermedad entre los tres primeros diagnósticos del egreso, depurados desde 5.801.611 egresos GRD."},
-    {ico:"pulse",v:DATOS.enfermedades.length,l:"Enfermedades reumáticas",t:"Grupos diagnósticos reumáticos caracterizados en el estudio."},
-    {ico:"percent",v:(pct!=null?pct+"%":"—"),l:"Episodios en mayores de 60",t:"Porcentaje de la cohorte en el tramo etario mayor de 60 años."},
+    {ico:"users",v:fmt(totalCohorte),l:"Hospitalizaciones en la cohorte",t:"Hospitalizaciones (un egreso cada una, no personas) con la patología entre los tres primeros diagnósticos, depuradas desde 5.801.611 egresos GRD. Una persona puede aportar varias hospitalizaciones."},
+    {ico:"pulse",v:DATOS.enfermedades.length,l:"Patologías reumáticas",t:"Grupos diagnósticos reumáticos caracterizados en el estudio."},
+    {ico:"percent",v:(pct!=null?pct+"%":"s/d"),l:"Hospitalizaciones en mayores de 60 años",t:"Porcentaje de las hospitalizaciones de la cohorte en el tramo etario mayor de 60 años."},
     {ico:"calendar",v:anios[0]+"–"+anios[anios.length-1],l:"Período ("+anios.length+" años)",t:"Años de egreso cubiertos por los registros GRD."}
   ];
-  $("#kpis").innerHTML=items.map(k=>`<div class="kpi" title="${k.t}"><span class="kico">${svgIco(k.ico,"")}</span><div><div class="kv">${k.v}</div><div class="kl">${k.l}</div></div></div>`).join("");
+  $("#kpis").innerHTML=items.map(k=>`<div class="kpi hastip" title="${k.t}"><span class="kico">${svgIco(k.ico,"")}</span><div><div class="kv">${k.v}</div><div class="kl">${k.l}</div></div></div>`).join("");
 })();
 
 render();
+
+// ---------- Tooltip táctil: muestra el texto de [title] al tocar (móvil) sin perder el hover en escritorio ----------
+(function(){
+  const tt=document.createElement("div"); tt.id="tt"; document.body.appendChild(tt);
+  let cur=null;
+  function place(el){
+    const t=el.getAttribute("data-tip")||el.getAttribute("title"); if(!t) return false;
+    tt.textContent=t; tt.style.display="block";
+    const er=el.getBoundingClientRect(), tr=tt.getBoundingClientRect();
+    let left=er.left+er.width/2-tr.width/2;
+    left=Math.max(8,Math.min(left,window.innerWidth-tr.width-8));
+    let top=er.bottom+9;
+    if(top+tr.height>window.innerHeight-8) top=er.top-tr.height-9;
+    tt.style.left=left+"px"; tt.style.top=top+"px";
+    tt.style.setProperty("--ax",(er.left+er.width/2-left)+"px");
+    return true;
+  }
+  function hide(){ tt.style.display="none"; cur=null; }
+  document.addEventListener("click",e=>{
+    const el=e.target.closest("[title],[data-tip]");
+    if(!el){ hide(); return; }
+    if(cur===el){ hide(); return; }
+    if(place(el)) cur=el;
+  });
+  window.addEventListener("scroll",hide,true);
+  window.addEventListener("resize",hide);
+})();
 </script>
 </body>
 </html>
